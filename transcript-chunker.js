@@ -5,9 +5,9 @@ function normalizeWords(transcript) {
 }
 
 function createTranscriptChunker({
-  minWords = 3,
-  maxWords = 9,
-  intervalMs = 1600,
+  minWords = 5,
+  maxWords = 12,
+  intervalMs = 1350,
 } = {}) {
   let processedWords = 0;
   let lastChunkAt = 0;

@@ -50,6 +50,7 @@
     </div>
     <div class="setup__controls">
       <select id="overlayLanguage" aria-label="Idioma"><option value="en">Inglés</option><option value="fr">Francés</option><option value="pt">Portugués</option><option value="es">Español original</option></select>
+      <select id="overlayVoice" aria-label="Tipo de voz"><option value="clear">Voz clara</option><option value="deep">Voz grave</option><option value="soft">Voz suave</option></select>
       <select id="overlayAudio" aria-label="Audio"><option value="on">Audio activado</option><option value="off">Solo subtítulos</option></select>
       <select id="overlayMode" aria-label="Tipo de salida"><option value="transparent">Fondo transparente</option><option value="projection">Pantalla de proyección</option></select>
       <select id="overlayPosition" aria-label="Posición"><option value="bottom">Abajo</option><option value="center">Centro</option></select>
@@ -73,6 +74,7 @@
     const supported = new Set(['es','en','fr','pt']);
     const params = new URLSearchParams(window.location.search);
     const languageSelect = document.getElementById('overlayLanguage');
+    const voiceSelect = document.getElementById('overlayVoice');
     const audioSelect = document.getElementById('overlayAudio');
     const modeSelect = document.getElementById('overlayMode');
     const positionSelect = document.getElementById('overlayPosition');
@@ -84,11 +86,14 @@
     const languageLabel = document.getElementById('overlayLanguageLabel');
     const copyButton = document.getElementById('copyCleanUrl');
     let selectedLanguage = supported.has(params.get('lang')) ? params.get('lang') : 'en';
+    const supportedVoices = new Set(['clear','deep','soft']);
+    let selectedVoice = supportedVoices.has(params.get('voice')) ? params.get('voice') : 'clear';
     const languageNames = {en:'Inglés',fr:'Francés',pt:'Portugués',es:'Español original'};
     let clearTimer, currentPlayback, playing = false, playbackGeneration = 0;
     let audioQueue = [];
 
     languageSelect.value = selectedLanguage;
+    voiceSelect.value = selectedVoice;
     audioSelect.value = params.get('audio') === '0' ? 'off' : 'on';
     modeSelect.value = params.get('mode') === 'projection' ? 'projection' : 'transparent';
     positionSelect.value = params.get('position') === 'center' ? 'center' : 'bottom';
@@ -122,7 +127,7 @@
     function playNext() {
       if (playing || !audioQueue.length || audioSelect.value !== 'on') return;
       const item=audioQueue.shift();
-      if (item.language !== selectedLanguage || item.generation !== playbackGeneration) { URL.revokeObjectURL(item.url); playNext(); return; }
+      if (item.language !== selectedLanguage || item.voice !== selectedVoice || item.generation !== playbackGeneration) { URL.revokeObjectURL(item.url); playNext(); return; }
       const audio=new Audio(item.url); playing=true; currentPlayback={audio,url:item.url};
       const finish=()=>{ if(currentPlayback?.audio!==audio)return; URL.revokeObjectURL(item.url); playing=false; currentPlayback=null; playNext(); };
       audio.onended=finish; audio.onerror=finish;
@@ -131,13 +136,13 @@
         playing=false; currentPlayback=null; audioQueue.unshift(item); statusText.textContent='Haz clic para activar audio';
       });
     }
-    function enqueueAudio(buffer,audioLanguage) {
-      if(audioSelect.value!=='on' || audioLanguage!==selectedLanguage)return;
+    function enqueueAudio(buffer,audioLanguage,audioVoice) {
+      if(audioSelect.value!=='on' || audioLanguage!==selectedLanguage || audioVoice!==selectedVoice)return;
       const blob=new Blob([buffer],{type:'audio/mpeg'});
-      audioQueue.push({url:URL.createObjectURL(blob),language:audioLanguage,generation:playbackGeneration}); playNext();
+      audioQueue.push({url:URL.createObjectURL(blob),language:audioLanguage,voice:audioVoice,generation:playbackGeneration}); playNext();
     }
     function cleanUrl() {
-      const query = new URLSearchParams({lang:selectedLanguage,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
+      const query = new URLSearchParams({lang:selectedLanguage,voice:selectedVoice,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
       return `${window.location.origin}${window.location.pathname}?${query.toString()}`;
     }
     async function copyCleanUrl() {
@@ -155,21 +160,34 @@
     const socket = io(SERVER_URL, {transports:['websocket','polling'],reconnection:true});
     socket.on('connect', () => {
       socket.emit('join_role','listener');
-      socket.emit('set_listener_language',selectedLanguage);
+      socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
       status.classList.add('is-connected'); statusText.textContent='Conectado';
     });
     socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando…'; });
     socket.on('connect_error', () => { statusText.textContent='Servidor iniciando…'; });
     socket.on('translation', data => {
       if (data.lang !== selectedLanguage) return;
-      setCaption(data.text); if(data.audio) enqueueAudio(data.audio,data.lang);
+      setCaption(data.text);
+    });
+    socket.on('translation_audio', data => {
+      if (data.lang !== selectedLanguage || data.voice !== selectedVoice) return;
+      if(data.audio) enqueueAudio(data.audio,data.lang,data.voice);
     });
     languageSelect.addEventListener('change', () => {
-      selectedLanguage=languageSelect.value; clearAudioQueue(); socket.emit('set_listener_language',selectedLanguage);
+      selectedLanguage=languageSelect.value; clearAudioQueue(); voiceSelect.disabled=selectedLanguage==='es';
+      socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
       languageLabel.textContent=languageNames[selectedLanguage];
       text.textContent='Esperando el siguiente fragmento…'; text.classList.add('caption__placeholder'); caption.classList.add('is-visible');
     });
-    audioSelect.addEventListener('change',()=>{ clearAudioQueue(); if(audioSelect.value==='on')playNext(); });
+    voiceSelect.addEventListener('change',()=>{
+      selectedVoice=voiceSelect.value; clearAudioQueue();
+      socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
+      text.textContent='Voz cambiada. Esperando el siguiente fragmento…'; text.classList.add('caption__placeholder'); caption.classList.add('is-visible');
+    });
+    audioSelect.addEventListener('change',()=>{
+      clearAudioQueue(); socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
+      if(audioSelect.value==='on')playNext();
+    });
     document.addEventListener('pointerdown',()=>{ if(audioSelect.value==='on')playNext(); });
     modeSelect.addEventListener('change',applyAppearance);
     positionSelect.addEventListener('change',applyAppearance);

@@ -8,6 +8,7 @@ const { Translate } = require('@google-cloud/translate').v2;
 const textToSpeech = require('@google-cloud/text-to-speech');
 const cors = require('cors');
 const { createTranscriptChunker } = require('./transcript-chunker');
+const { DEFAULT_VOICE, VOICE_PROFILES, googleVoiceName, normalizeVoice } = require('./voice-config');
 
 const app = express();
 app.use(cors());
@@ -35,13 +36,22 @@ try {
   console.error("Error al inicializar Google Cloud. Asegúrate de tener credentials.json y el .env configurado.", error);
 }
 
-// Configuración de idiomas y voces válidas de Google Cloud Text-to-Speech.
+// Idiomas de destino. Las voces Chirp 3 HD se construyen desde voice-config.js.
 const TARGET_LANGUAGES = [
-  { code: 'en', languageCode: 'en-US', voiceName: 'en-US-Standard-A' },
-  { code: 'fr', languageCode: 'fr-FR', voiceName: 'fr-FR-Standard-F' },
-  { code: 'pt', languageCode: 'pt-BR', voiceName: 'pt-BR-Standard-A' },
+  { code: 'en', languageCode: 'en-US' },
+  { code: 'fr', languageCode: 'fr-FR' },
+  { code: 'pt', languageCode: 'pt-BR' },
 ];
 const LISTENER_LANGUAGES = new Set(['es', ...TARGET_LANGUAGES.map(({ code }) => code)]);
+const VOICE_KEYS = Object.keys(VOICE_PROFILES);
+
+function languageRoom(language) {
+  return `listener:${language}`;
+}
+
+function voiceRoom(language, voice) {
+  return `${languageRoom(language)}:${voice}`;
+}
 
 io.on('connection', (socket) => {
   console.log(`Usuario conectado: ${socket.id}`);
@@ -57,7 +67,7 @@ io.on('connection', (socket) => {
     const segmentId = `${socket.id}-${++segmentSequence}`;
     console.log(`Orador (ES${isFinal ? ', final' : ', parcial'}): ${normalizedText}`);
 
-    io.to('listener:es').emit('translation', {
+    io.to(languageRoom('es')).emit('translation', {
       segmentId,
       lang: 'es',
       text: normalizedText,
@@ -65,29 +75,36 @@ io.on('connection', (socket) => {
       isFinal,
     });
 
-    await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode, voiceName }) => {
+    await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode }) => {
       try {
         const [translation] = await translateClient.translate(normalizedText, code);
-        let audioBuffer = null;
-
-        try {
-          const [ttsResponse] = await ttsClient.synthesizeSpeech({
-            input: { text: translation },
-            voice: { languageCode, name: voiceName },
-            audioConfig: { audioEncoding: 'MP3', speakingRate: 1.08 },
-          });
-          audioBuffer = ttsResponse.audioContent;
-        } catch (ttsError) {
-          console.error(`Error generando audio para ${code}:`, ttsError);
-        }
-
-        io.to(`listener:${code}`).emit('translation', {
+        io.to(languageRoom(code)).emit('translation', {
           segmentId,
           lang: code,
           text: translation,
-          audio: audioBuffer,
+          audio: null,
           isFinal,
         });
+
+        const activeVoices = VOICE_KEYS.filter((voice) => io.sockets.adapter.rooms.get(voiceRoom(code, voice))?.size);
+        await Promise.all(activeVoices.map(async (voice) => {
+          try {
+            const [ttsResponse] = await ttsClient.synthesizeSpeech({
+              input: { text: translation },
+              voice: { languageCode, name: googleVoiceName(languageCode, voice) },
+              audioConfig: { audioEncoding: 'MP3' },
+            });
+            io.to(voiceRoom(code, voice)).emit('translation_audio', {
+              segmentId,
+              lang: code,
+              voice,
+              audio: ttsResponse.audioContent,
+              isFinal,
+            });
+          } catch (ttsError) {
+            console.error(`Error generando audio ${code}/${voice}:`, ttsError);
+          }
+        }));
       } catch (translationError) {
         console.error(`Error traduciendo idioma ${code}:`, translationError);
       }
@@ -107,15 +124,32 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} unido como ${role}`);
   });
 
-  socket.on('set_listener_language', (language) => {
+  function setListenerPreferences(language, voice, audioEnabled = true) {
     if (socket.role !== 'listener' || !LISTENER_LANGUAGES.has(language)) return;
+    const selectedVoice = normalizeVoice(voice);
 
     for (const supportedLanguage of LISTENER_LANGUAGES) {
-      socket.leave(`listener:${supportedLanguage}`);
+      socket.leave(languageRoom(supportedLanguage));
+      for (const voiceKey of VOICE_KEYS) socket.leave(voiceRoom(supportedLanguage, voiceKey));
     }
-    socket.join(`listener:${language}`);
+    socket.join(languageRoom(language));
+    if (language !== 'es' && audioEnabled) socket.join(voiceRoom(language, selectedVoice));
     socket.listenerLanguage = language;
-    console.log(`Oyente ${socket.id} cambió a ${language}`);
+    socket.listenerVoice = selectedVoice;
+    socket.listenerAudioEnabled = audioEnabled;
+    console.log(`Oyente ${socket.id} cambió a ${language}/${selectedVoice}`);
+  }
+
+  socket.on('set_listener_preferences', ({ language, voice, audio = true } = {}) => {
+    setListenerPreferences(language, voice, audio !== false);
+  });
+
+  socket.on('set_listener_language', (language) => {
+    setListenerPreferences(language, socket.listenerVoice || DEFAULT_VOICE, socket.listenerAudioEnabled !== false);
+  });
+
+  socket.on('set_listener_voice', (voice) => {
+    setListenerPreferences(socket.listenerLanguage || 'en', voice, socket.listenerAudioEnabled !== false);
   });
 
   socket.on('start_speaker_stream', () => {

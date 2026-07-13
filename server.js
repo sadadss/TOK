@@ -48,6 +48,7 @@ const VOICE_KEYS = Object.keys(VOICE_PROFILES);
 const SPEECH_RENEWAL_MS = 225000;
 const SPEECH_RENEWAL_FALLBACK_MS = 1800;
 const MAX_SPEECH_RECOVERY_ATTEMPTS = 4;
+const SEMANTIC_PAUSE_MS = 1100;
 const SPEECH_REQUEST = {
   config: {
     encoding: 'WEBM_OPUS',
@@ -73,6 +74,7 @@ io.on('connection', (socket) => {
   let speakerStreaming = false;
   let speechRenewalTimer = null;
   let speechRenewalFallbackTimer = null;
+  let semanticFlushTimer = null;
   let renewalRequested = false;
   let latestTranscript = '';
   let speechRecoveryAttempts = 0;
@@ -179,11 +181,30 @@ io.on('connection', (socket) => {
     speechRenewalFallbackTimer = null;
   }
 
+  function clearSemanticFlushTimer() {
+    clearTimeout(semanticFlushTimer);
+    semanticFlushTimer = null;
+  }
+
+  function flushSemanticBuffer() {
+    clearSemanticFlushTimer();
+    enqueueTranslation(transcriptChunker.flush(), true);
+  }
+
+  function scheduleSemanticFlush() {
+    clearSemanticFlushTimer();
+    if (!transcriptChunker.hasPending()) return;
+    semanticFlushTimer = setTimeout(flushSemanticBuffer, SEMANTIC_PAUSE_MS);
+  }
+
   function flushPendingTranscript() {
-    if (!latestTranscript) return;
-    const remaining = transcriptChunker.next({ transcript: latestTranscript, isFinal: true });
+    clearSemanticFlushTimer();
+    const remaining = latestTranscript
+      ? transcriptChunker.next({ transcript: latestTranscript, isFinal: true })
+      : '';
     latestTranscript = '';
     enqueueTranslation(remaining, true);
+    enqueueTranslation(transcriptChunker.flush(), true);
   }
 
   function finishRecognitionStream({ flush = true } = {}) {
@@ -191,6 +212,7 @@ io.on('connection', (socket) => {
     if (flush) flushPendingTranscript();
     else {
       latestTranscript = '';
+      clearSemanticFlushTimer();
       transcriptChunker.reset();
     }
 
@@ -256,11 +278,17 @@ io.on('connection', (socket) => {
         if (!alternative) return;
 
         speechRecoveryAttempts = 0;
+        clearSemanticFlushTimer();
         latestTranscript = alternative.transcript;
         const isFinal = Boolean(result.isFinal);
-        const chunk = transcriptChunker.next({ transcript: latestTranscript, isFinal });
+        const chunk = transcriptChunker.next({
+          transcript: latestTranscript,
+          isFinal,
+          stability: Number(result.stability || 0),
+        });
         if (isFinal) latestTranscript = '';
         enqueueTranslation(chunk, isFinal);
+        if (isFinal && !chunk) scheduleSemanticFlush();
       });
     scheduleSpeechRenewal();
     console.log('Stream de reconocimiento activo.');
@@ -271,6 +299,7 @@ io.on('connection', (socket) => {
     console.log(`Renovando stream de reconocimiento: ${reason}`);
     finishRecognitionStream({ flush: true });
     transcriptChunker.reset();
+    clearSemanticFlushTimer();
     startRecognitionStream();
   }
 
@@ -281,6 +310,7 @@ io.on('connection', (socket) => {
     speechRecoveryAttempts = 0;
     finishRecognitionStream({ flush: false });
     transcriptChunker.reset();
+    clearSemanticFlushTimer();
     if (speechClient) startRecognitionStream();
     else socket.emit('speaker_error', { message: 'El servicio de reconocimiento no está disponible.' });
   });

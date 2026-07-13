@@ -4,6 +4,7 @@ La configuración predeterminada está pensada para una demostración de baja es
 
 ## Enlaces directos
 
+- Demostración todo en uno: `https://traduccion-vivo-backend.onrender.com/demo?event=demo`
 - Orador: `https://traduccion-vivo-backend.onrender.com/speaker?event=demo`
 - Oyente: `https://traduccion-vivo-backend.onrender.com/listener?event=demo`
 - Overlay: `https://traduccion-vivo-backend.onrender.com/overlay?event=demo&lang=en&voice=clear&mode=transparent&audio=1&clean=1`

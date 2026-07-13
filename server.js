@@ -38,11 +38,15 @@ app.use(cors(corsOptions));
 app.get('/', (_req, res) => res.json({
   service: 'RLA Traducción en vivo',
   mode: 'demo',
+  showcase: '/demo?event=demo',
   speaker: '/speaker?event=demo',
   listener: '/listener?event=demo',
   overlay: '/overlay?event=demo&lang=en&voice=clear&mode=transparent&audio=1&clean=1',
   health: '/health',
 }));
+app.get(['/demo', '/showcase', '/showcase.html'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'showcase.html'));
+});
 app.get(['/overlay', '/overlay.html'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'overlay.html'));
 });

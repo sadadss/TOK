@@ -1,0 +1,127 @@
+<script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+<style>
+  .rla-listener, .rla-listener * { box-sizing:border-box; }
+  .rla-listener { --ink:#f8fafc; --muted:#94a3b8; --line:rgba(148,163,184,.17); --cyan:#22d3ee; --violet:#8b5cf6; min-height:100vh; padding:clamp(18px,4vw,52px); color:var(--ink); background:radial-gradient(circle at 90% 5%,rgba(34,211,238,.16),transparent 30%),radial-gradient(circle at 8% 88%,rgba(139,92,246,.24),transparent 33%),#070b18; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  .rla-listener__shell { width:min(1060px,100%); margin:auto; }
+  .rla-listener__top { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
+  .rla-listener__brand { display:flex; align-items:center; gap:11px; font-weight:800; }
+  .rla-listener__logo { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:linear-gradient(135deg,var(--violet),var(--cyan)); }
+  .rla-listener__live { display:flex; align-items:center; gap:8px; padding:9px 13px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.62); font-size:13px; }
+  .rla-listener__dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; }
+  .rla-listener__live.is-connected .rla-listener__dot { background:#34d399; box-shadow:0 0 12px #34d399; }
+  .rla-listener__card { padding:clamp(24px,5vw,52px); border:1px solid var(--line); border-radius:30px; background:linear-gradient(145deg,rgba(30,41,59,.82),rgba(15,23,42,.58)); box-shadow:0 30px 90px rgba(0,0,0,.38); backdrop-filter:blur(18px); }
+  .rla-listener__header { display:flex; align-items:end; justify-content:space-between; gap:22px; margin-bottom:28px; }
+  .rla-listener__eyebrow { color:#67e8f9; font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+  .rla-listener h1 { margin:8px 0 0; font-size:clamp(28px,4.7vw,48px); letter-spacing:-.045em; line-height:1.05; }
+  .rla-listener__select-wrap { min-width:220px; }
+  .rla-listener__select-wrap label { display:block; margin-bottom:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+  .rla-listener select { width:100%; padding:13px 40px 13px 14px; border:1px solid var(--line); border-radius:13px; color:white; background:#111827; font:600 14px inherit; outline:none; }
+  .rla-listener__stage { position:relative; min-height:310px; padding:clamp(25px,5vw,50px); display:flex; flex-direction:column; justify-content:center; border:1px solid rgba(34,211,238,.14); border-radius:24px; background:radial-gradient(circle at 50% 0%,rgba(34,211,238,.08),transparent 48%),rgba(2,6,23,.42); overflow:hidden; }
+  .rla-listener__kicker { margin-bottom:15px; color:#67e8f9; font-size:12px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+  .rla-listener__subtitle { margin:0; max-width:900px; font-size:clamp(28px,5vw,56px); line-height:1.16; letter-spacing:-.035em; font-weight:720; text-wrap:balance; }
+  .rla-listener__history { min-height:26px; margin-top:18px; color:var(--muted); font-size:15px; line-height:1.55; }
+  .rla-listener__wave { height:30px; margin-top:26px; display:flex; align-items:center; gap:5px; opacity:.32; }
+  .rla-listener__wave span { width:4px; height:7px; border-radius:4px; background:linear-gradient(var(--cyan),var(--violet)); }
+  .rla-listener__wave.is-playing { opacity:1; }
+  .rla-listener__wave.is-playing span { animation:rlaWave .8s ease-in-out infinite alternate; }
+  .rla-listener__wave span:nth-child(2n){animation-delay:-.2s}.rla-listener__wave span:nth-child(3n){animation-delay:-.45s}
+  .rla-listener__join { width:min(360px,100%); margin:28px auto 0; padding:16px 24px; display:flex; justify-content:center; gap:10px; border:0; border-radius:15px; color:white; background:linear-gradient(135deg,#7c3aed,#2563eb); box-shadow:0 16px 40px rgba(79,70,229,.32); font:700 16px/1 inherit; cursor:pointer; }
+  .rla-listener__join:disabled { opacity:.65; cursor:wait; }
+  .rla-listener__footer { display:flex; justify-content:space-between; gap:16px; margin-top:18px; color:var(--muted); font-size:13px; }
+  @keyframes rlaWave { from{height:6px} to{height:28px} }
+  @media(max-width:700px){.rla-listener__header{align-items:stretch;flex-direction:column}.rla-listener__select-wrap{min-width:0}.rla-listener__footer{flex-direction:column}.rla-listener__stage{min-height:280px}.rla-listener__card{border-radius:24px}}
+</style>
+
+<main class="rla-listener" id="rlaListenerApp">
+  <div class="rla-listener__shell">
+    <header class="rla-listener__top">
+      <div class="rla-listener__brand"><span class="rla-listener__logo">R</span><span>RLA Live</span></div>
+      <div class="rla-listener__live" id="listenerStatus"><span class="rla-listener__dot"></span><span id="listenerStatusText">Sin conectar</span></div>
+    </header>
+    <section class="rla-listener__card">
+      <div class="rla-listener__header">
+        <div><div class="rla-listener__eyebrow">Interpretación en vivo</div><h1>Traducción simultánea</h1></div>
+        <div class="rla-listener__select-wrap"><label for="listenerLanguage">Idioma de escucha</label><select id="listenerLanguage"><option value="en">English · Inglés</option><option value="fr">Français · Francés</option><option value="pt">Português · Portugués</option><option value="es">Español · Original</option></select></div>
+      </div>
+      <div class="rla-listener__stage">
+        <div class="rla-listener__kicker" id="listenerKicker">Listo para comenzar</div>
+        <p class="rla-listener__subtitle" id="listenerSubtitle">Únete al evento para escuchar la traducción.</p>
+        <div class="rla-listener__history" id="listenerHistory"></div>
+        <div class="rla-listener__wave" id="listenerWave" aria-label="Audio en reproducción"></div>
+      </div>
+      <button class="rla-listener__join" id="listenerJoin">Unirse al evento</button>
+      <div class="rla-listener__footer"><span>Audio y subtítulos sincronizados en fragmentos continuos</span><span id="listenerQueue">Cola de audio: 0</span></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
+  const joinButton = document.getElementById('listenerJoin');
+  const language = document.getElementById('listenerLanguage');
+  const status = document.getElementById('listenerStatus');
+  const statusText = document.getElementById('listenerStatusText');
+  const subtitle = document.getElementById('listenerSubtitle');
+  const history = document.getElementById('listenerHistory');
+  const kicker = document.getElementById('listenerKicker');
+  const wave = document.getElementById('listenerWave');
+  const queueLabel = document.getElementById('listenerQueue');
+  let socket, currentAudio, joined = false, playing = false;
+  let audioQueue = [], recentText = [];
+
+  for(let i=0;i<22;i++) wave.insertAdjacentHTML('beforeend','<span></span>');
+  const languageNames = { en:'Inglés', fr:'Francés', pt:'Portugués', es:'Español original' };
+
+  function updateQueue() { queueLabel.textContent = `Cola de audio: ${audioQueue.length + (playing ? 1 : 0)}`; }
+  function clearAudioQueue() {
+    audioQueue.forEach(item => URL.revokeObjectURL(item.url)); audioQueue = [];
+    if(currentAudio){ currentAudio.pause(); currentAudio = null; }
+    playing = false; wave.classList.remove('is-playing'); updateQueue();
+  }
+  function playNext() {
+    if (playing || !audioQueue.length) { updateQueue(); return; }
+    const item = audioQueue.shift(); playing = true; wave.classList.add('is-playing');
+    currentAudio = new Audio(item.url);
+    const finish = () => { URL.revokeObjectURL(item.url); playing=false; currentAudio=null; if(!audioQueue.length) wave.classList.remove('is-playing'); updateQueue(); playNext(); };
+    currentAudio.onended = finish; currentAudio.onerror = finish;
+    currentAudio.play().catch(finish); updateQueue();
+  }
+  function enqueueAudio(buffer) {
+    const blob = new Blob([buffer], { type:'audio/mpeg' });
+    audioQueue.push({ url:URL.createObjectURL(blob) }); updateQueue(); playNext();
+  }
+  function showTranslation(text) {
+    if (subtitle.textContent && !/Únete|Esperando/.test(subtitle.textContent)) recentText.unshift(subtitle.textContent);
+    recentText = recentText.slice(0,2);
+    subtitle.textContent = text; history.textContent = recentText.join('  ·  ');
+  }
+
+  function join() {
+    joinButton.disabled = true; joinButton.textContent = 'Conectando…';
+    socket = io(SERVER_URL, { transports:['websocket','polling'], reconnection:true });
+    socket.on('connect', () => {
+      joined = true; socket.emit('join_role','listener');
+      status.classList.add('is-connected'); statusText.textContent = 'Conectado';
+      kicker.textContent = `Escuchando en ${languageNames[language.value]}`;
+      subtitle.textContent = 'Esperando la voz del orador…';
+      joinButton.style.display = 'none';
+    });
+    socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando'; });
+    socket.on('connect_error', () => { statusText.textContent='Servidor iniciando'; joinButton.textContent='Reintentando…'; });
+    socket.on('translation', data => {
+      if (data.lang !== language.value) return;
+      showTranslation(data.text);
+      if (data.audio) enqueueAudio(data.audio);
+    });
+  }
+
+  language.addEventListener('change', () => {
+    clearAudioQueue(); recentText=[]; history.textContent='';
+    kicker.textContent = joined ? `Escuchando en ${languageNames[language.value]}` : 'Listo para comenzar';
+    if(joined) subtitle.textContent='Esperando el siguiente fragmento…';
+  });
+  joinButton.addEventListener('click', join);
+  window.addEventListener('beforeunload', clearAudioQueue);
+})();
+</script>

@@ -29,8 +29,12 @@ try {
   console.error("Error al inicializar Google Cloud. Asegúrate de tener credentials.json y el .env configurado.", error);
 }
 
-// Configuración de idiomas soportados para la traducción
-const TARGET_LANGUAGES = ['en', 'fr', 'pt'];
+// Configuración de idiomas y voces válidas de Google Cloud Text-to-Speech.
+const TARGET_LANGUAGES = [
+  { code: 'en', languageCode: 'en-US', voiceName: 'en-US-Standard-A' },
+  { code: 'fr', languageCode: 'fr-FR', voiceName: 'fr-FR-Standard-F' },
+  { code: 'pt', languageCode: 'pt-BR', voiceName: 'pt-BR-Standard-A' },
+];
 
 io.on('connection', (socket) => {
   console.log(`Usuario conectado: ${socket.id}`);
@@ -76,31 +80,36 @@ io.on('connection', (socket) => {
                             audio: null // El orador ya se escucha en vivo, o se puede emitir el original si se desea
                         });
 
-                        // Traducir y sintetizar a los idiomas objetivo
-                        for (const lang of TARGET_LANGUAGES) {
+                        // Traducir y sintetizar los idiomas en paralelo para reducir la latencia.
+                        await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode, voiceName }) => {
                             try {
                                 // 1. Traducir
-                                const [translation] = await translateClient.translate(transcript, lang);
-                                
-                                // 2. Text-to-Speech
-                                const ttsRequest = {
-                                    input: { text: translation },
-                                    voice: { languageCode: lang, name: `${lang}-Standard-A` },
-                                    audioConfig: { audioEncoding: 'MP3' },
-                                };
-                                const [ttsResponse] = await ttsClient.synthesizeSpeech(ttsRequest);
-                                const audioBuffer = ttsResponse.audioContent;
+                                const [translation] = await translateClient.translate(transcript, code);
+
+                                // 2. Text-to-Speech. Si falla, el subtítulo igual se envía.
+                                let audioBuffer = null;
+                                try {
+                                    const ttsRequest = {
+                                        input: { text: translation },
+                                        voice: { languageCode, name: voiceName },
+                                        audioConfig: { audioEncoding: 'MP3' },
+                                    };
+                                    const [ttsResponse] = await ttsClient.synthesizeSpeech(ttsRequest);
+                                    audioBuffer = ttsResponse.audioContent;
+                                } catch (ttsError) {
+                                    console.error(`Error generando audio para ${code}:`, ttsError);
+                                }
 
                                 // 3. Emitir al frontend (subtítulo + audio)
                                 io.to('listener').emit('translation', {
-                                    lang: lang,
+                                    lang: code,
                                     text: translation,
                                     audio: audioBuffer // Buffer que se reproducirá en el cliente
                                 });
                             } catch (err) {
-                                console.error(`Error procesando idioma ${lang}:`, err);
+                                console.error(`Error traduciendo idioma ${code}:`, err);
                             }
-                        }
+                        }));
                     }
                 }
             });

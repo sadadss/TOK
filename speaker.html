@@ -1,44 +1,48 @@
 <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
   .rla-speaker, .rla-speaker * { box-sizing: border-box; }
   .rla-speaker {
-    --ink: #f8fafc; --muted: #94a3b8; --line: rgba(148,163,184,.18);
-    --accent: #7c3aed; --accent-2: #22d3ee; --danger: #fb7185;
+    --ink:#fff; --muted:#bdbdbd; --line:rgba(255,255,255,.13);
+    --accent:#7b1e2b; --accent-2:#a64a58; --surface:#282828;
     width:100vw; min-height:100vh; margin-left:calc(50% - 50vw); padding:clamp(20px,4vw,56px); color:var(--ink);
-    background: radial-gradient(circle at 15% 10%,rgba(124,58,237,.26),transparent 34%),
-                radial-gradient(circle at 85% 82%,rgba(34,211,238,.16),transparent 32%),#070b18;
-    font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:radial-gradient(circle at 15% 10%,rgba(123,30,43,.25),transparent 34%),linear-gradient(145deg,#303030,#121212 72%);
+    font-family:"Lato",Arial,sans-serif;
   }
   .rla-speaker__shell { width: min(940px,100%); margin: auto; }
   .rla-speaker__top { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:24px; }
   .rla-speaker__brand { display:flex; align-items:center; gap:12px; font-weight:800; letter-spacing:-.02em; }
-  .rla-speaker__logo { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:linear-gradient(135deg,var(--accent),var(--accent-2)); box-shadow:0 10px 35px rgba(124,58,237,.35); }
-  .rla-speaker__status { display:flex; align-items:center; gap:8px; padding:9px 13px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.62); font-size:13px; }
-  .rla-speaker__dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; box-shadow:0 0 12px currentColor; }
-  .rla-speaker__status.is-ready .rla-speaker__dot { background:#34d399; }
-  .rla-speaker__status.is-live .rla-speaker__dot { background:#fb7185; animation:rlaPulse 1.3s infinite; }
-  .rla-speaker__card { position:relative; overflow:hidden; padding:clamp(26px,5vw,58px); border:1px solid var(--line); border-radius:30px; background:linear-gradient(150deg,rgba(30,41,59,.82),rgba(15,23,42,.58)); box-shadow:0 30px 90px rgba(0,0,0,.38); backdrop-filter:blur(18px); }
-  .rla-speaker__eyebrow { color:#a78bfa; font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; text-align:center; }
+  .rla-speaker__logo { width:112px; height:54px; display:grid; place-items:center; padding:10px 14px; border-radius:11px; background:#414141; box-shadow:inset 0 -4px var(--accent),0 12px 32px rgba(0,0,0,.22); }
+  .rla-speaker__logo img { display:block; max-width:100%; max-height:100%; }
+  .rla-speaker__status { display:flex; align-items:center; gap:8px; padding:9px 13px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(40,40,40,.82); font-size:13px; }
+  .rla-speaker__dot { width:8px; height:8px; border-radius:50%; background:#8d8d8d; box-shadow:0 0 12px currentColor; }
+  .rla-speaker__status.is-ready .rla-speaker__dot { background:var(--accent-2); }
+  .rla-speaker__status.is-live .rla-speaker__dot { background:#c95b6c; animation:rlaPulse 1.3s infinite; }
+  .rla-speaker__card { position:relative; overflow:hidden; padding:clamp(26px,5vw,58px); border:1px solid var(--line); border-radius:28px; background:linear-gradient(150deg,rgba(61,61,61,.95),rgba(35,35,35,.94)); box-shadow:0 30px 90px rgba(0,0,0,.38); backdrop-filter:blur(18px); }
+  .rla-speaker__card::before { content:""; position:absolute; inset:0 0 auto; height:6px; background:var(--accent); }
+  .rla-speaker__eyebrow { color:#d5a4ab; font-size:12px; font-weight:900; letter-spacing:.16em; text-transform:uppercase; text-align:center; }
   .rla-speaker h1 { margin:10px 0 8px; color:var(--ink)!important; font-size:clamp(30px,5vw,52px); letter-spacing:-.045em; text-align:center; line-height:1.04; }
   .rla-speaker__lead { max-width:600px; margin:0 auto 32px; color:var(--muted); text-align:center; font-size:clamp(15px,2vw,18px); line-height:1.6; }
-  .rla-speaker__mic { width:150px; height:150px; margin:0 auto 22px; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(167,139,250,.34); background:radial-gradient(circle,rgba(124,58,237,.36),rgba(124,58,237,.08) 55%,transparent 56%); position:relative; }
-  .rla-speaker__mic::before,.rla-speaker__mic::after { content:""; position:absolute; inset:15px; border:1px solid rgba(34,211,238,.22); border-radius:50%; }
-  .rla-speaker__mic::after { inset:-1px; opacity:0; border-color:#a78bfa; }
+  .rla-speaker__mic { width:150px; height:150px; margin:0 auto 22px; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(166,74,88,.45); background:radial-gradient(circle,rgba(123,30,43,.5),rgba(123,30,43,.12) 55%,transparent 56%); position:relative; }
+  .rla-speaker__mic::before,.rla-speaker__mic::after { content:""; position:absolute; inset:15px; border:1px solid rgba(255,255,255,.14); border-radius:50%; }
+  .rla-speaker__mic::after { inset:-1px; opacity:0; border-color:var(--accent-2); }
   .rla-speaker.is-live .rla-speaker__mic::after { animation:rlaRing 1.8s infinite; }
   .rla-speaker__mic svg { width:50px; height:50px; fill:none; stroke:white; stroke-width:1.8; }
   .rla-speaker__timer { text-align:center; font-variant-numeric:tabular-nums; font-size:24px; font-weight:750; letter-spacing:.05em; }
   .rla-speaker__meter { height:32px; margin:17px auto 24px; display:flex; align-items:center; justify-content:center; gap:5px; }
-  .rla-speaker__bar { width:5px; height:7px; border-radius:5px; background:linear-gradient(#22d3ee,#8b5cf6); transition:height .08s linear; }
-  .rla-speaker__button { width:min(380px,100%); margin:auto; padding:16px 24px; display:flex; align-items:center; justify-content:center; gap:10px; border:0; border-radius:15px; color:white; background:linear-gradient(135deg,#7c3aed,#2563eb); box-shadow:0 16px 40px rgba(79,70,229,.32); font:700 16px/1 inherit; cursor:pointer; transition:transform .2s,filter .2s; }
+  .rla-speaker__bar { width:5px; height:7px; border-radius:5px; background:linear-gradient(#d5a4ab,var(--accent)); transition:height .08s linear; }
+  .rla-speaker__button { width:min(380px,100%); margin:auto; padding:16px 24px; display:flex; align-items:center; justify-content:center; gap:10px; border:1px solid #963746; border-radius:13px; color:white; background:var(--accent); box-shadow:0 16px 40px rgba(82,15,25,.32); font:900 16px/1 "Lato",Arial,sans-serif; cursor:pointer; transition:transform .2s,filter .2s; }
   .rla-speaker__button:hover { transform:translateY(-2px); filter:brightness(1.08); }
   .rla-speaker__button:disabled { opacity:.5; cursor:wait; transform:none; }
-  .rla-speaker.is-live .rla-speaker__button { background:linear-gradient(135deg,#e11d48,#f43f5e); box-shadow:0 16px 40px rgba(225,29,72,.28); }
+  .rla-speaker.is-live .rla-speaker__button { background:#54131d; box-shadow:0 16px 40px rgba(55,7,14,.38); }
   .rla-speaker__grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:30px; }
-  .rla-speaker__info { padding:16px; border:1px solid var(--line); border-radius:16px; background:rgba(2,6,23,.28); }
+  .rla-speaker__info { padding:16px; border:1px solid var(--line); border-radius:14px; background:rgba(22,22,22,.48); }
   .rla-speaker__info small { display:block; color:var(--muted); margin-bottom:6px; }
   .rla-speaker__info strong { font-size:14px; }
   .rla-speaker__notice { min-height:22px; margin:18px 0 0; color:var(--muted); text-align:center; font-size:13px; }
-  .rla-speaker__notice.is-error { color:#fda4af; }
+  .rla-speaker__notice.is-error { color:#ef9aa7; }
   @keyframes rlaPulse { 50% { opacity:.35; transform:scale(.75); } }
   @keyframes rlaRing { 0%{opacity:.65;transform:scale(.9)} 100%{opacity:0;transform:scale(1.28)} }
   @media (max-width:640px){ .rla-speaker__grid{grid-template-columns:1fr} .rla-speaker__card{border-radius:24px} }
@@ -47,7 +51,7 @@
 <main class="rla-speaker" id="rlaSpeakerApp">
   <div class="rla-speaker__shell">
     <header class="rla-speaker__top">
-      <div class="rla-speaker__brand"><span class="rla-speaker__logo">R</span><span>RLA Live</span></div>
+      <div class="rla-speaker__brand"><span class="rla-speaker__logo"><img src="https://web.rla-latam.com/wp-content/uploads/2026/03/Logo_RLA2_BLANCO.png" alt="RLA"></span><span>Traducción en vivo</span></div>
       <div class="rla-speaker__status" id="speakerStatus"><span class="rla-speaker__dot"></span><span id="speakerStatusText">Conectando</span></div>
     </header>
     <section class="rla-speaker__card">

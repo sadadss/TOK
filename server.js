@@ -6,9 +6,11 @@ const speech = require('@google-cloud/speech');
 const { Translate } = require('@google-cloud/translate').v2;
 const textToSpeech = require('@google-cloud/text-to-speech');
 const cors = require('cors');
+const { createTranscriptChunker } = require('./transcript-chunker');
 
 const app = express();
 app.use(cors());
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'live-translation' }));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -39,6 +41,60 @@ const TARGET_LANGUAGES = [
 io.on('connection', (socket) => {
   console.log(`Usuario conectado: ${socket.id}`);
   let recognizeStream = null;
+  let segmentSequence = 0;
+  let translationQueue = Promise.resolve();
+  const transcriptChunker = createTranscriptChunker();
+
+  async function translateAndBroadcast(text, isFinal) {
+    const normalizedText = String(text || '').trim();
+    if (!normalizedText) return;
+
+    const segmentId = `${socket.id}-${++segmentSequence}`;
+    console.log(`Orador (ES${isFinal ? ', final' : ', parcial'}): ${normalizedText}`);
+
+    io.to('listener').emit('translation', {
+      segmentId,
+      lang: 'es',
+      text: normalizedText,
+      audio: null,
+      isFinal,
+    });
+
+    await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode, voiceName }) => {
+      try {
+        const [translation] = await translateClient.translate(normalizedText, code);
+        let audioBuffer = null;
+
+        try {
+          const [ttsResponse] = await ttsClient.synthesizeSpeech({
+            input: { text: translation },
+            voice: { languageCode, name: voiceName },
+            audioConfig: { audioEncoding: 'MP3', speakingRate: 1.08 },
+          });
+          audioBuffer = ttsResponse.audioContent;
+        } catch (ttsError) {
+          console.error(`Error generando audio para ${code}:`, ttsError);
+        }
+
+        io.to('listener').emit('translation', {
+          segmentId,
+          lang: code,
+          text: translation,
+          audio: audioBuffer,
+          isFinal,
+        });
+      } catch (translationError) {
+        console.error(`Error traduciendo idioma ${code}:`, translationError);
+      }
+    }));
+  }
+
+  function enqueueTranslation(text, isFinal) {
+    if (!text) return;
+    translationQueue = translationQueue
+      .then(() => translateAndBroadcast(text, isFinal))
+      .catch((error) => console.error('Error en la cola de traducción:', error));
+  }
 
   socket.on('join_role', (role) => {
     socket.role = role;
@@ -50,14 +106,19 @@ io.on('connection', (socket) => {
     if (socket.role !== 'speaker') return;
     console.log("Iniciando stream del orador...");
 
+    if (recognizeStream) recognizeStream.end();
+    transcriptChunker.reset();
+
     // Configuración para el streaming de audio
     const request = {
       config: {
         encoding: 'WEBM_OPUS', // Ajusta según el formato capturado en el frontend (MediaRecorder suele usar webm)
         sampleRateHertz: 48000,
         languageCode: 'es-ES',
+        enableAutomaticPunctuation: true,
+        model: 'latest_long',
       },
-      interimResults: false, // Solo queremos resultados finales para no saturar con traducciones a medias
+      interimResults: true,
     };
 
     if(speechClient) {
@@ -65,53 +126,18 @@ io.on('connection', (socket) => {
             .streamingRecognize(request)
             .on('error', (err) => {
                 console.error("Error en Speech-to-Text:", err);
+                socket.emit('speaker_error', { message: 'No se pudo procesar el audio. Intenta reiniciar la transmisión.' });
             })
-            .on('data', async (data) => {
-                if (data.results[0] && data.results[0].alternatives[0]) {
-                    const isFinal = data.results[0].isFinal;
-                    if (isFinal) {
-                        const transcript = data.results[0].alternatives[0].transcript;
-                        console.log(`Orador (ES): ${transcript}`);
-                        
-                        // Enviar el subtítulo original a quienes escuchan español
-                        io.to('listener').emit('translation', {
-                            lang: 'es',
-                            text: transcript,
-                            audio: null // El orador ya se escucha en vivo, o se puede emitir el original si se desea
-                        });
+            .on('data', (data) => {
+                const result = data.results && data.results[0];
+                const alternative = result && result.alternatives && result.alternatives[0];
+                if (!alternative) return;
 
-                        // Traducir y sintetizar los idiomas en paralelo para reducir la latencia.
-                        await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode, voiceName }) => {
-                            try {
-                                // 1. Traducir
-                                const [translation] = await translateClient.translate(transcript, code);
-
-                                // 2. Text-to-Speech. Si falla, el subtítulo igual se envía.
-                                let audioBuffer = null;
-                                try {
-                                    const ttsRequest = {
-                                        input: { text: translation },
-                                        voice: { languageCode, name: voiceName },
-                                        audioConfig: { audioEncoding: 'MP3' },
-                                    };
-                                    const [ttsResponse] = await ttsClient.synthesizeSpeech(ttsRequest);
-                                    audioBuffer = ttsResponse.audioContent;
-                                } catch (ttsError) {
-                                    console.error(`Error generando audio para ${code}:`, ttsError);
-                                }
-
-                                // 3. Emitir al frontend (subtítulo + audio)
-                                io.to('listener').emit('translation', {
-                                    lang: code,
-                                    text: translation,
-                                    audio: audioBuffer // Buffer que se reproducirá en el cliente
-                                });
-                            } catch (err) {
-                                console.error(`Error traduciendo idioma ${code}:`, err);
-                            }
-                        }));
-                    }
-                }
+                const chunk = transcriptChunker.next({
+                  transcript: alternative.transcript,
+                  isFinal: Boolean(result.isFinal),
+                });
+                enqueueTranslation(chunk, Boolean(result.isFinal));
             });
     }
   });
@@ -126,6 +152,7 @@ io.on('connection', (socket) => {
     if (socket.role === 'speaker' && recognizeStream) {
       recognizeStream.end();
       recognizeStream = null;
+      transcriptChunker.reset();
       console.log("Stream del orador detenido.");
     }
   });
@@ -135,6 +162,7 @@ io.on('connection', (socket) => {
     if (recognizeStream) {
       recognizeStream.end();
     }
+    transcriptChunker.reset();
   });
 });
 

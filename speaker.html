@@ -1,0 +1,174 @@
+<script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+<style>
+  .rla-speaker, .rla-speaker * { box-sizing: border-box; }
+  .rla-speaker {
+    --ink: #f8fafc; --muted: #94a3b8; --line: rgba(148,163,184,.18);
+    --accent: #7c3aed; --accent-2: #22d3ee; --danger: #fb7185;
+    min-height: 100vh; padding: clamp(20px,4vw,56px); color: var(--ink);
+    background: radial-gradient(circle at 15% 10%,rgba(124,58,237,.26),transparent 34%),
+                radial-gradient(circle at 85% 82%,rgba(34,211,238,.16),transparent 32%),#070b18;
+    font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  .rla-speaker__shell { width: min(940px,100%); margin: auto; }
+  .rla-speaker__top { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:24px; }
+  .rla-speaker__brand { display:flex; align-items:center; gap:12px; font-weight:800; letter-spacing:-.02em; }
+  .rla-speaker__logo { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:linear-gradient(135deg,var(--accent),var(--accent-2)); box-shadow:0 10px 35px rgba(124,58,237,.35); }
+  .rla-speaker__status { display:flex; align-items:center; gap:8px; padding:9px 13px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.62); font-size:13px; }
+  .rla-speaker__dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; box-shadow:0 0 12px currentColor; }
+  .rla-speaker__status.is-ready .rla-speaker__dot { background:#34d399; }
+  .rla-speaker__status.is-live .rla-speaker__dot { background:#fb7185; animation:rlaPulse 1.3s infinite; }
+  .rla-speaker__card { position:relative; overflow:hidden; padding:clamp(26px,5vw,58px); border:1px solid var(--line); border-radius:30px; background:linear-gradient(150deg,rgba(30,41,59,.82),rgba(15,23,42,.58)); box-shadow:0 30px 90px rgba(0,0,0,.38); backdrop-filter:blur(18px); }
+  .rla-speaker__eyebrow { color:#a78bfa; font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; text-align:center; }
+  .rla-speaker h1 { margin:10px 0 8px; font-size:clamp(30px,5vw,52px); letter-spacing:-.045em; text-align:center; line-height:1.04; }
+  .rla-speaker__lead { max-width:600px; margin:0 auto 32px; color:var(--muted); text-align:center; font-size:clamp(15px,2vw,18px); line-height:1.6; }
+  .rla-speaker__mic { width:150px; height:150px; margin:0 auto 22px; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(167,139,250,.34); background:radial-gradient(circle,rgba(124,58,237,.36),rgba(124,58,237,.08) 55%,transparent 56%); position:relative; }
+  .rla-speaker__mic::before,.rla-speaker__mic::after { content:""; position:absolute; inset:15px; border:1px solid rgba(34,211,238,.22); border-radius:50%; }
+  .rla-speaker__mic::after { inset:-1px; opacity:0; border-color:#a78bfa; }
+  .rla-speaker.is-live .rla-speaker__mic::after { animation:rlaRing 1.8s infinite; }
+  .rla-speaker__mic svg { width:50px; height:50px; fill:none; stroke:white; stroke-width:1.8; }
+  .rla-speaker__timer { text-align:center; font-variant-numeric:tabular-nums; font-size:24px; font-weight:750; letter-spacing:.05em; }
+  .rla-speaker__meter { height:32px; margin:17px auto 24px; display:flex; align-items:center; justify-content:center; gap:5px; }
+  .rla-speaker__bar { width:5px; height:7px; border-radius:5px; background:linear-gradient(#22d3ee,#8b5cf6); transition:height .08s linear; }
+  .rla-speaker__button { width:min(380px,100%); margin:auto; padding:16px 24px; display:flex; align-items:center; justify-content:center; gap:10px; border:0; border-radius:15px; color:white; background:linear-gradient(135deg,#7c3aed,#2563eb); box-shadow:0 16px 40px rgba(79,70,229,.32); font:700 16px/1 inherit; cursor:pointer; transition:transform .2s,filter .2s; }
+  .rla-speaker__button:hover { transform:translateY(-2px); filter:brightness(1.08); }
+  .rla-speaker__button:disabled { opacity:.5; cursor:wait; transform:none; }
+  .rla-speaker.is-live .rla-speaker__button { background:linear-gradient(135deg,#e11d48,#f43f5e); box-shadow:0 16px 40px rgba(225,29,72,.28); }
+  .rla-speaker__grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:30px; }
+  .rla-speaker__info { padding:16px; border:1px solid var(--line); border-radius:16px; background:rgba(2,6,23,.28); }
+  .rla-speaker__info small { display:block; color:var(--muted); margin-bottom:6px; }
+  .rla-speaker__info strong { font-size:14px; }
+  .rla-speaker__notice { min-height:22px; margin:18px 0 0; color:var(--muted); text-align:center; font-size:13px; }
+  .rla-speaker__notice.is-error { color:#fda4af; }
+  @keyframes rlaPulse { 50% { opacity:.35; transform:scale(.75); } }
+  @keyframes rlaRing { 0%{opacity:.65;transform:scale(.9)} 100%{opacity:0;transform:scale(1.28)} }
+  @media (max-width:640px){ .rla-speaker__grid{grid-template-columns:1fr} .rla-speaker__card{border-radius:24px} }
+</style>
+
+<main class="rla-speaker" id="rlaSpeakerApp">
+  <div class="rla-speaker__shell">
+    <header class="rla-speaker__top">
+      <div class="rla-speaker__brand"><span class="rla-speaker__logo">R</span><span>RLA Live</span></div>
+      <div class="rla-speaker__status" id="speakerStatus"><span class="rla-speaker__dot"></span><span id="speakerStatusText">Conectando</span></div>
+    </header>
+    <section class="rla-speaker__card">
+      <div class="rla-speaker__eyebrow">Traducción simultánea</div>
+      <h1>Panel del orador</h1>
+      <p class="rla-speaker__lead">Habla con naturalidad. La voz se procesa en fragmentos continuos y se traduce casi en tiempo real.</p>
+      <div class="rla-speaker__mic" aria-hidden="true">
+        <svg viewBox="0 0 48 48"><rect x="17" y="6" width="14" height="25" rx="7"/><path d="M11 23a13 13 0 0 0 26 0M24 36v7M17 43h14"/></svg>
+      </div>
+      <div class="rla-speaker__timer" id="speakerTimer">00:00</div>
+      <div class="rla-speaker__meter" id="speakerMeter" aria-label="Nivel del micrófono"></div>
+      <button class="rla-speaker__button" id="speakerButton" disabled><span id="speakerButtonIcon">●</span><span id="speakerButtonText">Preparando conexión</span></button>
+      <div class="rla-speaker__grid">
+        <div class="rla-speaker__info"><small>Conexión</small><strong id="connectionInfo">Iniciando</strong></div>
+        <div class="rla-speaker__info"><small>Micrófono</small><strong id="microphoneInfo">Sin activar</strong></div>
+        <div class="rla-speaker__info"><small>Modo</small><strong>Traducción continua</strong></div>
+      </div>
+      <p class="rla-speaker__notice" id="speakerNotice">Puedes hablar sin esperar al final de cada frase.</p>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
+  const app = document.getElementById('rlaSpeakerApp');
+  const button = document.getElementById('speakerButton');
+  const buttonText = document.getElementById('speakerButtonText');
+  const status = document.getElementById('speakerStatus');
+  const statusText = document.getElementById('speakerStatusText');
+  const notice = document.getElementById('speakerNotice');
+  const timer = document.getElementById('speakerTimer');
+  const meter = document.getElementById('speakerMeter');
+  const connectionInfo = document.getElementById('connectionInfo');
+  const microphoneInfo = document.getElementById('microphoneInfo');
+  let recorder, mediaStream, audioContext, analyser, meterFrame, timerInterval, startedAt;
+  let isLive = false;
+
+  for (let i = 0; i < 18; i++) meter.insertAdjacentHTML('beforeend','<span class="rla-speaker__bar"></span>');
+  const bars = [...meter.children];
+  const socket = io(SERVER_URL, { transports: ['websocket','polling'], reconnection: true });
+
+  function setNotice(message, error = false) {
+    notice.textContent = message;
+    notice.classList.toggle('is-error', error);
+  }
+
+  socket.on('connect', () => {
+    socket.emit('join_role','speaker');
+    status.className = 'rla-speaker__status is-ready';
+    statusText.textContent = 'Listo';
+    connectionInfo.textContent = 'Servidor conectado';
+    button.disabled = false;
+    buttonText.textContent = 'Iniciar transmisión';
+  });
+  socket.on('disconnect', () => {
+    status.className = 'rla-speaker__status';
+    statusText.textContent = 'Reconectando';
+    connectionInfo.textContent = 'Sin conexión';
+    button.disabled = true;
+  });
+  socket.on('speaker_error', data => setNotice(data?.message || 'No se pudo procesar el audio.', true));
+  socket.on('connect_error', () => setNotice('El servidor está iniciando. La conexión se reintentará automáticamente.', false));
+
+  function updateTimer() {
+    const seconds = Math.floor((Date.now() - startedAt) / 1000);
+    timer.textContent = `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
+  }
+
+  function drawMeter() {
+    const values = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(values);
+    bars.forEach((bar,index) => {
+      const value = values[Math.floor(index * values.length / bars.length)] || 0;
+      bar.style.height = `${7 + Math.round((value / 255) * 25)}px`;
+    });
+    meterFrame = requestAnimationFrame(drawMeter);
+  }
+
+  async function start() {
+    try {
+      button.disabled = true;
+      setNotice('Solicitando acceso al micrófono…');
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+      recorder = new MediaRecorder(mediaStream, { mimeType, audioBitsPerSecond: 64000 });
+      recorder.ondataavailable = async event => {
+        if (event.data.size && socket.connected) socket.emit('audio_data', await event.data.arrayBuffer());
+      };
+      recorder.start(250);
+      socket.emit('start_speaker_stream');
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      audioContext.createMediaStreamSource(mediaStream).connect(analyser);
+      drawMeter();
+
+      isLive = true; startedAt = Date.now(); updateTimer(); timerInterval = setInterval(updateTimer,1000);
+      app.classList.add('is-live'); status.className = 'rla-speaker__status is-live';
+      statusText.textContent = 'En vivo'; buttonText.textContent = 'Detener transmisión';
+      microphoneInfo.textContent = 'Activo'; button.disabled = false;
+      setNotice('Transmitiendo y generando fragmentos de traducción en forma continua.');
+    } catch (error) {
+      button.disabled = false;
+      setNotice(error.name === 'NotAllowedError' ? 'Debes permitir el acceso al micrófono.' : 'No se pudo iniciar el micrófono.', true);
+    }
+  }
+
+  function stop() {
+    if (recorder?.state !== 'inactive') recorder.stop();
+    socket.emit('stop_speaker_stream');
+    mediaStream?.getTracks().forEach(track => track.stop());
+    cancelAnimationFrame(meterFrame); clearInterval(timerInterval); audioContext?.close();
+    bars.forEach(bar => bar.style.height='7px');
+    isLive = false; app.classList.remove('is-live'); status.className = 'rla-speaker__status is-ready';
+    statusText.textContent = 'Listo'; buttonText.textContent = 'Iniciar transmisión'; microphoneInfo.textContent = 'Sin activar';
+    setNotice('Transmisión detenida. Puedes volver a iniciarla cuando quieras.');
+  }
+
+  button.addEventListener('click', () => isLive ? stop() : start());
+  window.addEventListener('beforeunload', () => { if (isLive) stop(); });
+})();
+</script>

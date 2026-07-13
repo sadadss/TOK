@@ -18,7 +18,8 @@
   .rla-listener__header { display:flex; align-items:end; justify-content:space-between; gap:22px; margin-bottom:28px; }
   .rla-listener__eyebrow { color:#d5a4ab; font-size:12px; font-weight:900; letter-spacing:.16em; text-transform:uppercase; }
   .rla-listener h1 { margin:8px 0 0; color:var(--ink)!important; font-size:clamp(28px,4.7vw,48px); letter-spacing:-.045em; line-height:1.05; }
-  .rla-listener__select-wrap { min-width:220px; }
+  .rla-listener__controls { min-width:min(460px,52%); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .rla-listener__select-wrap { min-width:0; }
   .rla-listener__select-wrap label { display:block; margin-bottom:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
   .rla-listener select { width:100%; padding:13px 40px 13px 14px; border:1px solid var(--line); border-radius:11px; color:white; background:#202020; font:700 14px "Lato",Arial,sans-serif; outline:none; }
   .rla-listener__stage { position:relative; min-height:310px; padding:clamp(25px,5vw,50px); display:flex; flex-direction:column; justify-content:center; border:1px solid rgba(255,255,255,.11); border-radius:20px; background:radial-gradient(circle at 50% 0%,rgba(123,30,43,.12),transparent 48%),rgba(18,18,18,.58); overflow:hidden; }
@@ -42,7 +43,8 @@
   .rla-listener__output.is-copied { color:#f2cbd1; border-color:rgba(166,74,88,.8); }
   .rla-listener__footer { display:flex; justify-content:space-between; gap:16px; margin-top:18px; color:var(--muted); font-size:13px; }
   @keyframes rlaWave { from{height:6px} to{height:28px} }
-  @media(max-width:700px){.rla-listener__header{align-items:stretch;flex-direction:column}.rla-listener__select-wrap{min-width:0}.rla-listener__footer{flex-direction:column}.rla-listener__stage{min-height:280px}.rla-listener__card{border-radius:24px}.rla-listener__outputs-head{align-items:flex-start;flex-direction:column}.rla-listener__output-actions{grid-template-columns:1fr}}
+  @media(max-width:760px){.rla-listener__header{align-items:stretch;flex-direction:column}.rla-listener__controls{min-width:0;width:100%}.rla-listener__footer{flex-direction:column}.rla-listener__stage{min-height:280px}.rla-listener__card{border-radius:24px}.rla-listener__outputs-head{align-items:flex-start;flex-direction:column}.rla-listener__output-actions{grid-template-columns:1fr}}
+  @media(max-width:480px){.rla-listener__controls{grid-template-columns:1fr}}
 </style>
 
 <main class="rla-listener" id="rlaListenerApp">
@@ -54,7 +56,10 @@
     <section class="rla-listener__card">
       <div class="rla-listener__header">
         <div><div class="rla-listener__eyebrow">Interpretación en vivo</div><h1>Traducción simultánea</h1></div>
-        <div class="rla-listener__select-wrap"><label for="listenerLanguage">Idioma de escucha</label><select id="listenerLanguage"><option value="en">English · Inglés</option><option value="fr">Français · Francés</option><option value="pt">Português · Portugués</option><option value="es">Español · Original</option></select></div>
+        <div class="rla-listener__controls">
+          <div class="rla-listener__select-wrap"><label for="listenerLanguage">Idioma de escucha</label><select id="listenerLanguage"><option value="en">English · Inglés</option><option value="fr">Français · Francés</option><option value="pt">Português · Portugués</option><option value="es">Español · Original</option></select></div>
+          <div class="rla-listener__select-wrap"><label for="listenerVoice">Tipo de voz</label><select id="listenerVoice"><option value="clear">Clara · femenina</option><option value="deep">Grave · masculina</option><option value="soft">Suave · femenina</option></select></div>
+        </div>
       </div>
       <div class="rla-listener__stage">
         <div class="rla-listener__kicker" id="listenerKicker">Listo para comenzar</div>
@@ -83,6 +88,7 @@
   const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
   const joinButton = document.getElementById('listenerJoin');
   const language = document.getElementById('listenerLanguage');
+  const voice = document.getElementById('listenerVoice');
   const status = document.getElementById('listenerStatus');
   const statusText = document.getElementById('listenerStatusText');
   const subtitle = document.getElementById('listenerSubtitle');
@@ -96,6 +102,7 @@
   let socket, currentPlayback, joined = false, playing = false;
   let audioQueue = [], recentText = [], playbackGeneration = 0;
   let selectedLanguage = language.value;
+  let selectedVoice = voice.value;
 
   for(let i=0;i<22;i++) wave.insertAdjacentHTML('beforeend','<span></span>');
   const languageNames = { en:'Inglés', fr:'Francés', pt:'Portugués', es:'Español original' };
@@ -117,7 +124,7 @@
   function playNext() {
     if (playing || !audioQueue.length) { updateQueue(); return; }
     const item = audioQueue.shift(); playing = true; wave.classList.add('is-playing');
-    if (item.generation !== playbackGeneration || item.language !== selectedLanguage) {
+    if (item.generation !== playbackGeneration || item.language !== selectedLanguage || item.voice !== selectedVoice) {
       URL.revokeObjectURL(item.url); playing = false; playNext(); return;
     }
 
@@ -132,12 +139,13 @@
     audio.onended = finish; audio.onerror = finish;
     audio.play().catch(finish); updateQueue();
   }
-  function enqueueAudio(buffer, audioLanguage) {
-    if (audioLanguage !== selectedLanguage) return;
+  function enqueueAudio(buffer, audioLanguage, audioVoice) {
+    if (audioLanguage !== selectedLanguage || audioVoice !== selectedVoice) return;
     const blob = new Blob([buffer], { type:'audio/mpeg' });
     audioQueue.push({
       url:URL.createObjectURL(blob),
       language:audioLanguage,
+      voice:audioVoice,
       generation:playbackGeneration,
     });
     updateQueue(); playNext();
@@ -154,7 +162,7 @@
     socket.on('connect', () => {
       joined = true;
       socket.emit('join_role','listener');
-      socket.emit('set_listener_language',selectedLanguage);
+      socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:true});
       status.classList.add('is-connected'); statusText.textContent = 'Conectado';
       kicker.textContent = `Escuchando en ${languageNames[language.value]}`;
       subtitle.textContent = 'Esperando la voz del orador…';
@@ -165,7 +173,10 @@
     socket.on('translation', data => {
       if (data.lang !== selectedLanguage) return;
       showTranslation(data.text);
-      if (data.audio) enqueueAudio(data.audio, data.lang);
+    });
+    socket.on('translation_audio', data => {
+      if (data.lang !== selectedLanguage || data.voice !== selectedVoice) return;
+      if (data.audio) enqueueAudio(data.audio, data.lang, data.voice);
     });
   }
 
@@ -174,13 +185,22 @@
     if (nextLanguage === selectedLanguage) return;
     selectedLanguage = nextLanguage;
     clearAudioQueue();
-    socket?.emit('set_listener_language', selectedLanguage);
+    voice.disabled = selectedLanguage === 'es';
+    socket?.emit('set_listener_preferences', { language:selectedLanguage, voice:selectedVoice, audio:true });
     recentText=[]; history.textContent='';
     kicker.textContent = joined ? `Escuchando en ${languageNames[selectedLanguage]}` : 'Listo para comenzar';
     if(joined) subtitle.textContent='Esperando el siguiente fragmento…';
   }
+  function switchVoice() {
+    const nextVoice = voice.value;
+    if (nextVoice === selectedVoice) return;
+    selectedVoice = nextVoice;
+    clearAudioQueue();
+    socket?.emit('set_listener_preferences', { language:selectedLanguage, voice:selectedVoice, audio:true });
+    if (joined && selectedLanguage !== 'es') subtitle.textContent='Voz cambiada. Esperando el siguiente fragmento…';
+  }
   function outputUrl(mode) {
-    const params = new URLSearchParams({ lang:selectedLanguage, mode, audio:'1', clean:'1' });
+    const params = new URLSearchParams({ lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1' });
     return `${SERVER_URL}/overlay?${params.toString()}`;
   }
   function openOutput(mode) {
@@ -201,6 +221,7 @@
   }
   language.addEventListener('input', switchLanguage);
   language.addEventListener('change', switchLanguage);
+  voice.addEventListener('change', switchVoice);
   joinButton.addEventListener('click', join);
   openOverlayButton.addEventListener('click', () => openOutput('transparent'));
   openProjectionButton.addEventListener('click', () => openOutput('projection'));

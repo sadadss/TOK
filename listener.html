@@ -175,7 +175,7 @@
     if(joined) subtitle.textContent='Esperando el siguiente fragmento…';
   }
   function outputUrl(mode) {
-    const params = new URLSearchParams({ lang:selectedLanguage, mode, clean:'1' });
+    const params = new URLSearchParams({ lang:selectedLanguage, mode, audio:'1', clean:'1' });
     return `${SERVER_URL}/overlay?${params.toString()}`;
   }
   function openOutput(mode) {

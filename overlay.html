@@ -4,39 +4,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>RLA Live · Overlay de subtítulos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
   <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
   <style>
-    :root { color-scheme:dark; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    :root { color-scheme:dark; --rla-gray:#282828; --rla-gray-soft:#3b3b3b; --rla-white:#fff; --rla-red:#7b1e2b; font-family:"Lato",Arial,sans-serif; }
     * { box-sizing:border-box; }
     html,body { width:100%; height:100%; margin:0; overflow:hidden; background:transparent; }
-    body.mode-projection { background:radial-gradient(circle at 80% 10%,#172554 0,transparent 42%),radial-gradient(circle at 10% 90%,#312e81 0,transparent 38%),#050816; }
+    body.mode-projection { background:radial-gradient(circle at 82% 8%,rgba(123,30,43,.25),transparent 42%),linear-gradient(145deg,#333 0,#171717 72%); }
     .overlay { position:relative; width:100vw; height:100vh; display:flex; align-items:flex-end; justify-content:center; padding:5vh 5vw 8vh; }
     .overlay.position-center { align-items:center; padding-bottom:5vh; }
-    .caption { width:min(1500px,92vw); text-align:center; opacity:0; transform:translateY(14px); transition:opacity .2s ease,transform .2s ease; }
+    .caption { width:min(1580px,92vw); display:grid; grid-template-columns:clamp(120px,10vw,176px) minmax(0,1fr); align-items:stretch; text-align:left; opacity:0; transform:translateY(14px); filter:drop-shadow(0 16px 32px rgba(0,0,0,.34)); transition:opacity .2s ease,transform .2s ease; }
     .caption.is-visible { opacity:1; transform:none; }
-    .caption__text { display:inline; margin:0; padding:.15em .38em .22em; color:#fff; background:rgba(2,6,23,.82); box-decoration-break:clone; -webkit-box-decoration-break:clone; border-radius:.18em; font-size:clamp(34px,4.4vw,76px); font-weight:760; line-height:1.28; letter-spacing:-.025em; text-shadow:0 2px 8px rgba(0,0,0,.8); overflow-wrap:anywhere; }
-    .caption.is-long .caption__text { font-size:clamp(30px,3.7vw,64px); }
-    .caption.is-very-long .caption__text { font-size:clamp(26px,3.15vw,54px); }
+    .caption__brand { position:relative; min-height:132px; display:grid; place-items:center; padding:24px 20px; border-radius:18px 0 0 18px; background:rgba(65,65,65,.96); overflow:hidden; }
+    .caption__brand::after { content:""; position:absolute; inset:auto 0 0; height:7px; background:var(--rla-red); }
+    .caption__logo { display:block; width:100%; max-width:132px; height:auto; }
+    .caption__copy { min-width:0; display:flex; flex-direction:column; justify-content:center; padding:24px clamp(28px,3vw,52px) 27px; border-left:1px solid rgba(255,255,255,.1); border-radius:0 18px 18px 0; color:var(--rla-white); background:rgba(40,40,40,.93); }
+    .caption__language { margin-bottom:7px; color:#d5a4ab; font-size:clamp(12px,1.05vw,17px); font-weight:900; letter-spacing:.16em; text-transform:uppercase; }
+    .caption__text { margin:0; color:var(--rla-white); font-size:clamp(32px,3.6vw,64px); font-weight:900; line-height:1.16; letter-spacing:-.018em; text-shadow:0 2px 7px rgba(0,0,0,.45); overflow-wrap:anywhere; }
+    .caption.is-long .caption__text { font-size:clamp(29px,3.1vw,54px); }
+    .caption.is-very-long .caption__text { font-size:clamp(25px,2.7vw,48px); }
     .mode-projection .caption { width:min(1680px,90vw); }
-    .mode-projection .caption__text { background:rgba(0,0,0,.72); box-shadow:0 18px 70px rgba(0,0,0,.28); }
-    .setup { position:fixed; z-index:2; inset:18px 18px auto; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px; border:1px solid rgba(148,163,184,.22); border-radius:16px; color:#e2e8f0; background:rgba(15,23,42,.88); box-shadow:0 14px 45px rgba(0,0,0,.28); backdrop-filter:blur(16px); }
+    .setup { position:fixed; z-index:2; inset:18px 18px auto; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px; border:1px solid rgba(255,255,255,.13); border-radius:14px; color:var(--rla-white); background:rgba(40,40,40,.94); box-shadow:0 14px 45px rgba(0,0,0,.28); backdrop-filter:blur(16px); }
+    .setup__brand { display:flex; align-items:center; gap:12px; min-width:230px; }
+    .setup__logo-box { width:72px; height:38px; display:grid; place-items:center; padding:7px 10px; border-radius:8px; background:var(--rla-gray-soft); }
+    .setup__logo-box img { display:block; max-width:100%; max-height:100%; }
     .setup__status { display:flex; align-items:center; gap:9px; min-width:155px; font-size:13px; font-weight:700; }
-    .setup__dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; }
-    .setup__status.is-connected .setup__dot { background:#34d399; box-shadow:0 0 12px #34d399; }
+    .setup__dot { width:8px; height:8px; border-radius:50%; background:#b1b1b1; }
+    .setup__status.is-connected .setup__dot { background:var(--rla-red); box-shadow:0 0 12px rgba(123,30,43,.9); }
     .setup__controls { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
-    .setup select,.setup button { min-height:38px; padding:8px 12px; border:1px solid rgba(148,163,184,.22); border-radius:10px; color:#f8fafc; background:#111827; font:700 12px/1 inherit; cursor:pointer; }
-    .setup button.primary { border:0; background:linear-gradient(135deg,#7c3aed,#2563eb); }
-    .help { position:fixed; inset:auto 24px 20px; color:#94a3b8; text-align:center; font-size:12px; }
+    .setup select,.setup button { min-height:38px; padding:8px 12px; border:1px solid rgba(255,255,255,.16); border-radius:9px; color:var(--rla-white); background:#202020; font:700 12px/1 "Lato",Arial,sans-serif; cursor:pointer; }
+    .setup button.primary { border-color:#913040; background:var(--rla-red); }
+    .help { position:fixed; inset:auto 24px 20px; color:#bdbdbd; text-align:center; font-size:12px; }
     body.is-clean .setup,body.is-clean .help { display:none; }
     body.is-clean .caption__placeholder { display:none; }
-    @media(max-width:700px){.setup{align-items:flex-start;flex-direction:column}.setup__controls{justify-content:flex-start}.caption__text{font-size:clamp(28px,7vw,48px)}}
+    @media(max-width:700px){.setup{align-items:flex-start;flex-direction:column}.setup__controls{justify-content:flex-start}.caption{grid-template-columns:92px minmax(0,1fr)}.caption__brand{min-height:100px;padding:16px 12px}.caption__copy{padding:18px 20px}.caption__text{font-size:clamp(25px,6.6vw,44px)}}
   </style>
 </head>
 <body>
   <aside class="setup" aria-label="Configuración de salida">
-    <div class="setup__status" id="overlayStatus"><span class="setup__dot"></span><span id="overlayStatusText">Conectando…</span></div>
+    <div class="setup__brand">
+      <span class="setup__logo-box"><img src="https://web.rla-latam.com/wp-content/uploads/2026/03/Logo_RLA2_BLANCO.png" alt="RLA"></span>
+      <div class="setup__status" id="overlayStatus"><span class="setup__dot"></span><span id="overlayStatusText">Conectando…</span></div>
+    </div>
     <div class="setup__controls">
       <select id="overlayLanguage" aria-label="Idioma"><option value="en">Inglés</option><option value="fr">Francés</option><option value="pt">Portugués</option><option value="es">Español original</option></select>
+      <select id="overlayAudio" aria-label="Audio"><option value="on">Audio activado</option><option value="off">Solo subtítulos</option></select>
       <select id="overlayMode" aria-label="Tipo de salida"><option value="transparent">Fondo transparente</option><option value="projection">Pantalla de proyección</option></select>
       <select id="overlayPosition" aria-label="Posición"><option value="bottom">Abajo</option><option value="center">Centro</option></select>
       <button id="copyCleanUrl" type="button">Copiar URL limpia</button>
@@ -45,7 +59,11 @@
   </aside>
   <main class="overlay" id="overlayStage">
     <div class="caption" id="overlayCaption" aria-live="polite">
-      <span class="caption__text caption__placeholder" id="overlayText">La traducción aparecerá aquí.</span>
+      <div class="caption__brand"><img class="caption__logo" src="https://web.rla-latam.com/wp-content/uploads/2026/03/Logo_RLA2_BLANCO.png" alt="RLA"></div>
+      <div class="caption__copy">
+        <div class="caption__language" id="overlayLanguageLabel">Inglés</div>
+        <p class="caption__text caption__placeholder" id="overlayText">La traducción aparecerá aquí.</p>
+      </div>
     </div>
   </main>
   <div class="help">Para OBS/vMix, usa “Copiar URL limpia” como fuente de navegador a 1920 × 1080.</div>
@@ -55,6 +73,7 @@
     const supported = new Set(['es','en','fr','pt']);
     const params = new URLSearchParams(window.location.search);
     const languageSelect = document.getElementById('overlayLanguage');
+    const audioSelect = document.getElementById('overlayAudio');
     const modeSelect = document.getElementById('overlayMode');
     const positionSelect = document.getElementById('overlayPosition');
     const status = document.getElementById('overlayStatus');
@@ -62,14 +81,19 @@
     const stage = document.getElementById('overlayStage');
     const caption = document.getElementById('overlayCaption');
     const text = document.getElementById('overlayText');
+    const languageLabel = document.getElementById('overlayLanguageLabel');
     const copyButton = document.getElementById('copyCleanUrl');
     let selectedLanguage = supported.has(params.get('lang')) ? params.get('lang') : 'en';
-    let clearTimer;
+    const languageNames = {en:'Inglés',fr:'Francés',pt:'Portugués',es:'Español original'};
+    let clearTimer, currentPlayback, playing = false, playbackGeneration = 0;
+    let audioQueue = [];
 
     languageSelect.value = selectedLanguage;
+    audioSelect.value = params.get('audio') === '0' ? 'off' : 'on';
     modeSelect.value = params.get('mode') === 'projection' ? 'projection' : 'transparent';
     positionSelect.value = params.get('position') === 'center' ? 'center' : 'bottom';
     if (params.get('clean') === '1') document.body.classList.add('is-clean');
+    languageLabel.textContent = languageNames[selectedLanguage];
 
     function applyAppearance() {
       document.body.classList.toggle('mode-projection', modeSelect.value === 'projection');
@@ -86,8 +110,34 @@
       caption.classList.add('is-visible');
       clearTimer = setTimeout(() => caption.classList.remove('is-visible'), 12000);
     }
+    function clearAudioQueue() {
+      playbackGeneration += 1;
+      audioQueue.forEach(item => URL.revokeObjectURL(item.url)); audioQueue=[];
+      if (currentPlayback) {
+        const {audio,url}=currentPlayback; audio.onended=null; audio.onerror=null; audio.pause(); audio.currentTime=0;
+        audio.removeAttribute('src'); audio.load(); URL.revokeObjectURL(url); currentPlayback=null;
+      }
+      playing=false;
+    }
+    function playNext() {
+      if (playing || !audioQueue.length || audioSelect.value !== 'on') return;
+      const item=audioQueue.shift();
+      if (item.language !== selectedLanguage || item.generation !== playbackGeneration) { URL.revokeObjectURL(item.url); playNext(); return; }
+      const audio=new Audio(item.url); playing=true; currentPlayback={audio,url:item.url};
+      const finish=()=>{ if(currentPlayback?.audio!==audio)return; URL.revokeObjectURL(item.url); playing=false; currentPlayback=null; playNext(); };
+      audio.onended=finish; audio.onerror=finish;
+      audio.play().catch(()=>{
+        if(currentPlayback?.audio!==audio)return;
+        playing=false; currentPlayback=null; audioQueue.unshift(item); statusText.textContent='Haz clic para activar audio';
+      });
+    }
+    function enqueueAudio(buffer,audioLanguage) {
+      if(audioSelect.value!=='on' || audioLanguage!==selectedLanguage)return;
+      const blob=new Blob([buffer],{type:'audio/mpeg'});
+      audioQueue.push({url:URL.createObjectURL(blob),language:audioLanguage,generation:playbackGeneration}); playNext();
+    }
     function cleanUrl() {
-      const query = new URLSearchParams({lang:selectedLanguage,mode:modeSelect.value,position:positionSelect.value,clean:'1'});
+      const query = new URLSearchParams({lang:selectedLanguage,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
       return `${window.location.origin}${window.location.pathname}?${query.toString()}`;
     }
     async function copyCleanUrl() {
@@ -110,17 +160,24 @@
     });
     socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando…'; });
     socket.on('connect_error', () => { statusText.textContent='Servidor iniciando…'; });
-    socket.on('translation', data => { if (data.lang === selectedLanguage) setCaption(data.text); });
+    socket.on('translation', data => {
+      if (data.lang !== selectedLanguage) return;
+      setCaption(data.text); if(data.audio) enqueueAudio(data.audio,data.lang);
+    });
     languageSelect.addEventListener('change', () => {
-      selectedLanguage=languageSelect.value; socket.emit('set_listener_language',selectedLanguage);
+      selectedLanguage=languageSelect.value; clearAudioQueue(); socket.emit('set_listener_language',selectedLanguage);
+      languageLabel.textContent=languageNames[selectedLanguage];
       text.textContent='Esperando el siguiente fragmento…'; text.classList.add('caption__placeholder'); caption.classList.add('is-visible');
     });
+    audioSelect.addEventListener('change',()=>{ clearAudioQueue(); if(audioSelect.value==='on')playNext(); });
+    document.addEventListener('pointerdown',()=>{ if(audioSelect.value==='on')playNext(); });
     modeSelect.addEventListener('change',applyAppearance);
     positionSelect.addEventListener('change',applyAppearance);
     copyButton.addEventListener('click',copyCleanUrl);
     document.getElementById('hideControls').addEventListener('click', () => {
       window.history.replaceState({},'',cleanUrl()); document.body.classList.add('is-clean'); caption.classList.remove('is-visible');
     });
+    window.addEventListener('beforeunload',clearAudioQueue);
   })();
   </script>
 </body>

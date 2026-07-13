@@ -27,9 +27,17 @@
   .rla-listener__wave span:nth-child(2n){animation-delay:-.2s}.rla-listener__wave span:nth-child(3n){animation-delay:-.45s}
   .rla-listener__join { width:min(360px,100%); margin:28px auto 0; padding:16px 24px; display:flex; justify-content:center; gap:10px; border:0; border-radius:15px; color:white; background:linear-gradient(135deg,#7c3aed,#2563eb); box-shadow:0 16px 40px rgba(79,70,229,.32); font:700 16px/1 inherit; cursor:pointer; }
   .rla-listener__join:disabled { opacity:.65; cursor:wait; }
+  .rla-listener__outputs { margin-top:24px; padding-top:24px; border-top:1px solid var(--line); }
+  .rla-listener__outputs-head { display:flex; align-items:end; justify-content:space-between; gap:18px; margin-bottom:14px; }
+  .rla-listener__outputs h2 { margin:0 0 5px; color:var(--ink)!important; font-size:18px; letter-spacing:-.02em; }
+  .rla-listener__outputs p { margin:0; color:var(--muted); font-size:13px; }
+  .rla-listener__output-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+  .rla-listener__output { padding:13px 15px; border:1px solid var(--line); border-radius:13px; color:#e2e8f0; background:rgba(15,23,42,.72); font:700 13px/1.2 inherit; cursor:pointer; transition:border-color .2s,transform .2s,background .2s; }
+  .rla-listener__output:hover { transform:translateY(-1px); border-color:rgba(34,211,238,.48); background:rgba(30,41,59,.92); }
+  .rla-listener__output.is-copied { color:#6ee7b7; border-color:rgba(52,211,153,.5); }
   .rla-listener__footer { display:flex; justify-content:space-between; gap:16px; margin-top:18px; color:var(--muted); font-size:13px; }
   @keyframes rlaWave { from{height:6px} to{height:28px} }
-  @media(max-width:700px){.rla-listener__header{align-items:stretch;flex-direction:column}.rla-listener__select-wrap{min-width:0}.rla-listener__footer{flex-direction:column}.rla-listener__stage{min-height:280px}.rla-listener__card{border-radius:24px}}
+  @media(max-width:700px){.rla-listener__header{align-items:stretch;flex-direction:column}.rla-listener__select-wrap{min-width:0}.rla-listener__footer{flex-direction:column}.rla-listener__stage{min-height:280px}.rla-listener__card{border-radius:24px}.rla-listener__outputs-head{align-items:flex-start;flex-direction:column}.rla-listener__output-actions{grid-template-columns:1fr}}
 </style>
 
 <main class="rla-listener" id="rlaListenerApp">
@@ -50,6 +58,16 @@
         <div class="rla-listener__wave" id="listenerWave" aria-label="Audio en reproducción"></div>
       </div>
       <button class="rla-listener__join" id="listenerJoin">Unirse al evento</button>
+      <div class="rla-listener__outputs">
+        <div class="rla-listener__outputs-head">
+          <div><h2>Salida para producción</h2><p>Usa el idioma seleccionado en OBS, vMix o una pantalla externa.</p></div>
+        </div>
+        <div class="rla-listener__output-actions">
+          <button class="rla-listener__output" id="openOverlay" type="button">Abrir overlay transparente ↗</button>
+          <button class="rla-listener__output" id="openProjection" type="button">Abrir vista de proyección ↗</button>
+          <button class="rla-listener__output" id="copyOverlay" type="button">Copiar URL para OBS</button>
+        </div>
+      </div>
       <div class="rla-listener__footer"><span>Audio y subtítulos sincronizados en fragmentos continuos</span><span id="listenerQueue">Cola de audio: 0</span></div>
     </section>
   </div>
@@ -67,6 +85,9 @@
   const kicker = document.getElementById('listenerKicker');
   const wave = document.getElementById('listenerWave');
   const queueLabel = document.getElementById('listenerQueue');
+  const openOverlayButton = document.getElementById('openOverlay');
+  const openProjectionButton = document.getElementById('openProjection');
+  const copyOverlayButton = document.getElementById('copyOverlay');
   let socket, currentPlayback, joined = false, playing = false;
   let audioQueue = [], recentText = [], playbackGeneration = 0;
   let selectedLanguage = language.value;
@@ -153,9 +174,32 @@
     kicker.textContent = joined ? `Escuchando en ${languageNames[selectedLanguage]}` : 'Listo para comenzar';
     if(joined) subtitle.textContent='Esperando el siguiente fragmento…';
   }
+  function outputUrl(mode) {
+    const params = new URLSearchParams({ lang:selectedLanguage, mode, clean:'1' });
+    return `${SERVER_URL}/overlay?${params.toString()}`;
+  }
+  function openOutput(mode) {
+    window.open(outputUrl(mode), '_blank', 'noopener,noreferrer');
+  }
+  async function copyOverlayUrl() {
+    const url = outputUrl('transparent');
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (_error) {
+      const field = document.createElement('textarea');
+      field.value = url; field.style.position = 'fixed'; field.style.opacity = '0';
+      document.body.appendChild(field); field.select(); document.execCommand('copy'); field.remove();
+    }
+    copyOverlayButton.textContent = 'URL copiada ✓';
+    copyOverlayButton.classList.add('is-copied');
+    setTimeout(() => { copyOverlayButton.textContent='Copiar URL para OBS'; copyOverlayButton.classList.remove('is-copied'); }, 2200);
+  }
   language.addEventListener('input', switchLanguage);
   language.addEventListener('change', switchLanguage);
   joinButton.addEventListener('click', join);
+  openOverlayButton.addEventListener('click', () => openOutput('transparent'));
+  openProjectionButton.addEventListener('click', () => openOutput('projection'));
+  copyOverlayButton.addEventListener('click', copyOverlayUrl);
   window.addEventListener('beforeunload', clearAudioQueue);
 })();
 </script>

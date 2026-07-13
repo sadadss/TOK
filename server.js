@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 const speech = require('@google-cloud/speech');
 const { Translate } = require('@google-cloud/translate').v2;
@@ -11,6 +12,9 @@ const { createTranscriptChunker } = require('./transcript-chunker');
 const app = express();
 app.use(cors());
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'live-translation' }));
+app.get(['/overlay', '/overlay.html'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'overlay.html'));
+});
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {

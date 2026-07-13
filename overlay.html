@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RLA Live · Overlay de subtítulos</title>
+  <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+  <style>
+    :root { color-scheme:dark; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:transparent; }
+    body.mode-projection { background:radial-gradient(circle at 80% 10%,#172554 0,transparent 42%),radial-gradient(circle at 10% 90%,#312e81 0,transparent 38%),#050816; }
+    .overlay { position:relative; width:100vw; height:100vh; display:flex; align-items:flex-end; justify-content:center; padding:5vh 5vw 8vh; }
+    .overlay.position-center { align-items:center; padding-bottom:5vh; }
+    .caption { width:min(1500px,92vw); text-align:center; opacity:0; transform:translateY(14px); transition:opacity .2s ease,transform .2s ease; }
+    .caption.is-visible { opacity:1; transform:none; }
+    .caption__text { display:inline; margin:0; padding:.15em .38em .22em; color:#fff; background:rgba(2,6,23,.82); box-decoration-break:clone; -webkit-box-decoration-break:clone; border-radius:.18em; font-size:clamp(34px,4.4vw,76px); font-weight:760; line-height:1.28; letter-spacing:-.025em; text-shadow:0 2px 8px rgba(0,0,0,.8); overflow-wrap:anywhere; }
+    .caption.is-long .caption__text { font-size:clamp(30px,3.7vw,64px); }
+    .caption.is-very-long .caption__text { font-size:clamp(26px,3.15vw,54px); }
+    .mode-projection .caption { width:min(1680px,90vw); }
+    .mode-projection .caption__text { background:rgba(0,0,0,.72); box-shadow:0 18px 70px rgba(0,0,0,.28); }
+    .setup { position:fixed; z-index:2; inset:18px 18px auto; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px; border:1px solid rgba(148,163,184,.22); border-radius:16px; color:#e2e8f0; background:rgba(15,23,42,.88); box-shadow:0 14px 45px rgba(0,0,0,.28); backdrop-filter:blur(16px); }
+    .setup__status { display:flex; align-items:center; gap:9px; min-width:155px; font-size:13px; font-weight:700; }
+    .setup__dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; }
+    .setup__status.is-connected .setup__dot { background:#34d399; box-shadow:0 0 12px #34d399; }
+    .setup__controls { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+    .setup select,.setup button { min-height:38px; padding:8px 12px; border:1px solid rgba(148,163,184,.22); border-radius:10px; color:#f8fafc; background:#111827; font:700 12px/1 inherit; cursor:pointer; }
+    .setup button.primary { border:0; background:linear-gradient(135deg,#7c3aed,#2563eb); }
+    .help { position:fixed; inset:auto 24px 20px; color:#94a3b8; text-align:center; font-size:12px; }
+    body.is-clean .setup,body.is-clean .help { display:none; }
+    body.is-clean .caption__placeholder { display:none; }
+    @media(max-width:700px){.setup{align-items:flex-start;flex-direction:column}.setup__controls{justify-content:flex-start}.caption__text{font-size:clamp(28px,7vw,48px)}}
+  </style>
+</head>
+<body>
+  <aside class="setup" aria-label="Configuración de salida">
+    <div class="setup__status" id="overlayStatus"><span class="setup__dot"></span><span id="overlayStatusText">Conectando…</span></div>
+    <div class="setup__controls">
+      <select id="overlayLanguage" aria-label="Idioma"><option value="en">Inglés</option><option value="fr">Francés</option><option value="pt">Portugués</option><option value="es">Español original</option></select>
+      <select id="overlayMode" aria-label="Tipo de salida"><option value="transparent">Fondo transparente</option><option value="projection">Pantalla de proyección</option></select>
+      <select id="overlayPosition" aria-label="Posición"><option value="bottom">Abajo</option><option value="center">Centro</option></select>
+      <button id="copyCleanUrl" type="button">Copiar URL limpia</button>
+      <button class="primary" id="hideControls" type="button">Ocultar controles</button>
+    </div>
+  </aside>
+  <main class="overlay" id="overlayStage">
+    <div class="caption" id="overlayCaption" aria-live="polite">
+      <span class="caption__text caption__placeholder" id="overlayText">La traducción aparecerá aquí.</span>
+    </div>
+  </main>
+  <div class="help">Para OBS/vMix, usa “Copiar URL limpia” como fuente de navegador a 1920 × 1080.</div>
+  <script>
+  (() => {
+    const SERVER_URL = window.location.origin;
+    const supported = new Set(['es','en','fr','pt']);
+    const params = new URLSearchParams(window.location.search);
+    const languageSelect = document.getElementById('overlayLanguage');
+    const modeSelect = document.getElementById('overlayMode');
+    const positionSelect = document.getElementById('overlayPosition');
+    const status = document.getElementById('overlayStatus');
+    const statusText = document.getElementById('overlayStatusText');
+    const stage = document.getElementById('overlayStage');
+    const caption = document.getElementById('overlayCaption');
+    const text = document.getElementById('overlayText');
+    const copyButton = document.getElementById('copyCleanUrl');
+    let selectedLanguage = supported.has(params.get('lang')) ? params.get('lang') : 'en';
+    let clearTimer;
+
+    languageSelect.value = selectedLanguage;
+    modeSelect.value = params.get('mode') === 'projection' ? 'projection' : 'transparent';
+    positionSelect.value = params.get('position') === 'center' ? 'center' : 'bottom';
+    if (params.get('clean') === '1') document.body.classList.add('is-clean');
+
+    function applyAppearance() {
+      document.body.classList.toggle('mode-projection', modeSelect.value === 'projection');
+      stage.classList.toggle('position-center', positionSelect.value === 'center');
+    }
+    function setCaption(value) {
+      const normalized = String(value || '').trim();
+      if (!normalized) return;
+      clearTimeout(clearTimer);
+      text.classList.remove('caption__placeholder');
+      text.textContent = normalized;
+      caption.classList.toggle('is-long', normalized.length > 95 && normalized.length <= 160);
+      caption.classList.toggle('is-very-long', normalized.length > 160);
+      caption.classList.add('is-visible');
+      clearTimer = setTimeout(() => caption.classList.remove('is-visible'), 12000);
+    }
+    function cleanUrl() {
+      const query = new URLSearchParams({lang:selectedLanguage,mode:modeSelect.value,position:positionSelect.value,clean:'1'});
+      return `${window.location.origin}${window.location.pathname}?${query.toString()}`;
+    }
+    async function copyCleanUrl() {
+      const value = cleanUrl();
+      try { await navigator.clipboard.writeText(value); }
+      catch (_error) {
+        const field=document.createElement('textarea'); field.value=value; field.style.position='fixed'; field.style.opacity='0';
+        document.body.appendChild(field); field.select(); document.execCommand('copy'); field.remove();
+      }
+      copyButton.textContent='URL copiada ✓'; setTimeout(() => { copyButton.textContent='Copiar URL limpia'; },1800);
+    }
+
+    applyAppearance();
+    if (!document.body.classList.contains('is-clean')) caption.classList.add('is-visible');
+    const socket = io(SERVER_URL, {transports:['websocket','polling'],reconnection:true});
+    socket.on('connect', () => {
+      socket.emit('join_role','listener');
+      socket.emit('set_listener_language',selectedLanguage);
+      status.classList.add('is-connected'); statusText.textContent='Conectado';
+    });
+    socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando…'; });
+    socket.on('connect_error', () => { statusText.textContent='Servidor iniciando…'; });
+    socket.on('translation', data => { if (data.lang === selectedLanguage) setCaption(data.text); });
+    languageSelect.addEventListener('change', () => {
+      selectedLanguage=languageSelect.value; socket.emit('set_listener_language',selectedLanguage);
+      text.textContent='Esperando el siguiente fragmento…'; text.classList.add('caption__placeholder'); caption.classList.add('is-visible');
+    });
+    modeSelect.addEventListener('change',applyAppearance);
+    positionSelect.addEventListener('change',applyAppearance);
+    copyButton.addEventListener('click',copyCleanUrl);
+    document.getElementById('hideControls').addEventListener('click', () => {
+      window.history.replaceState({},'',cleanUrl()); document.body.classList.add('is-clean'); caption.classList.remove('is-visible');
+    });
+  })();
+  </script>
+</body>
+</html>

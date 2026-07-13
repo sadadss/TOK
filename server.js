@@ -37,6 +37,7 @@ const TARGET_LANGUAGES = [
   { code: 'fr', languageCode: 'fr-FR', voiceName: 'fr-FR-Standard-F' },
   { code: 'pt', languageCode: 'pt-BR', voiceName: 'pt-BR-Standard-A' },
 ];
+const LISTENER_LANGUAGES = new Set(['es', ...TARGET_LANGUAGES.map(({ code }) => code)]);
 
 io.on('connection', (socket) => {
   console.log(`Usuario conectado: ${socket.id}`);
@@ -52,7 +53,7 @@ io.on('connection', (socket) => {
     const segmentId = `${socket.id}-${++segmentSequence}`;
     console.log(`Orador (ES${isFinal ? ', final' : ', parcial'}): ${normalizedText}`);
 
-    io.to('listener').emit('translation', {
+    io.to('listener:es').emit('translation', {
       segmentId,
       lang: 'es',
       text: normalizedText,
@@ -76,7 +77,7 @@ io.on('connection', (socket) => {
           console.error(`Error generando audio para ${code}:`, ttsError);
         }
 
-        io.to('listener').emit('translation', {
+        io.to(`listener:${code}`).emit('translation', {
           segmentId,
           lang: code,
           text: translation,
@@ -100,6 +101,17 @@ io.on('connection', (socket) => {
     socket.role = role;
     socket.join(role);
     console.log(`Socket ${socket.id} unido como ${role}`);
+  });
+
+  socket.on('set_listener_language', (language) => {
+    if (socket.role !== 'listener' || !LISTENER_LANGUAGES.has(language)) return;
+
+    for (const supportedLanguage of LISTENER_LANGUAGES) {
+      socket.leave(`listener:${supportedLanguage}`);
+    }
+    socket.join(`listener:${language}`);
+    socket.listenerLanguage = language;
+    console.log(`Oyente ${socket.id} cambió a ${language}`);
   });
 
   socket.on('start_speaker_stream', () => {

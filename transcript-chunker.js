@@ -73,6 +73,7 @@ function createTranscriptChunker({
     const semanticEnding = endsSemanticUnit(bufferedWords);
     const reachedHardLimit = bufferedWords.length >= maxWords || ageMs >= maxMs;
     const reachedNaturalLimit = semanticEnding
+      && bufferedWords.length >= minWords
       && ageMs >= minSegmentMs
       && (bufferedWords.length >= preferredWords || ageMs >= targetMs);
 

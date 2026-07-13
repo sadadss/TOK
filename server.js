@@ -44,6 +44,20 @@ const TARGET_LANGUAGES = [
 ];
 const LISTENER_LANGUAGES = new Set(['es', ...TARGET_LANGUAGES.map(({ code }) => code)]);
 const VOICE_KEYS = Object.keys(VOICE_PROFILES);
+// Google limita cada StreamingRecognize a unos 5 minutos. Se renueva antes del límite.
+const SPEECH_RENEWAL_MS = 225000;
+const SPEECH_RENEWAL_FALLBACK_MS = 1800;
+const MAX_SPEECH_RECOVERY_ATTEMPTS = 4;
+const SPEECH_REQUEST = {
+  config: {
+    encoding: 'WEBM_OPUS',
+    sampleRateHertz: 48000,
+    languageCode: 'es-ES',
+    enableAutomaticPunctuation: true,
+    model: 'latest_long',
+  },
+  interimResults: true,
+};
 
 function languageRoom(language) {
   return `listener:${language}`;
@@ -56,6 +70,12 @@ function voiceRoom(language, voice) {
 io.on('connection', (socket) => {
   console.log(`Usuario conectado: ${socket.id}`);
   let recognizeStream = null;
+  let speakerStreaming = false;
+  let speechRenewalTimer = null;
+  let speechRenewalFallbackTimer = null;
+  let renewalRequested = false;
+  let latestTranscript = '';
+  let speechRecoveryAttempts = 0;
   let segmentSequence = 0;
   let translationQueue = Promise.resolve();
   const transcriptChunker = createTranscriptChunker();
@@ -152,66 +172,148 @@ io.on('connection', (socket) => {
     setListenerPreferences(socket.listenerLanguage || 'en', voice, socket.listenerAudioEnabled !== false);
   });
 
+  function clearSpeechTimers() {
+    clearTimeout(speechRenewalTimer);
+    clearTimeout(speechRenewalFallbackTimer);
+    speechRenewalTimer = null;
+    speechRenewalFallbackTimer = null;
+  }
+
+  function flushPendingTranscript() {
+    if (!latestTranscript) return;
+    const remaining = transcriptChunker.next({ transcript: latestTranscript, isFinal: true });
+    latestTranscript = '';
+    enqueueTranslation(remaining, true);
+  }
+
+  function finishRecognitionStream({ flush = true } = {}) {
+    clearSpeechTimers();
+    if (flush) flushPendingTranscript();
+    else {
+      latestTranscript = '';
+      transcriptChunker.reset();
+    }
+
+    const previousStream = recognizeStream;
+    recognizeStream = null;
+    if (previousStream) {
+      try { previousStream.end(); }
+      catch (error) { console.warn('No se pudo cerrar el stream anterior:', error.message); }
+    }
+  }
+
+  function requestCaptureRenewal(reason) {
+    if (!speakerStreaming || renewalRequested) return;
+    renewalRequested = true;
+    console.log(`Solicitando renovación del audio del orador: ${reason}`);
+    socket.emit('renew_speaker_capture');
+    speechRenewalFallbackTimer = setTimeout(() => {
+      if (speakerStreaming && renewalRequested) rotateRecognitionStream('fallback del servidor');
+    }, SPEECH_RENEWAL_FALLBACK_MS);
+  }
+
+  function scheduleSpeechRenewal() {
+    clearTimeout(speechRenewalTimer);
+    speechRenewalTimer = setTimeout(
+      () => requestCaptureRenewal('renovación preventiva'),
+      SPEECH_RENEWAL_MS
+    );
+  }
+
+  function handleRecognitionError(error, failedStream) {
+    if (failedStream !== recognizeStream) return;
+    console.error('Error en Speech-to-Text:', error);
+    recognizeStream = null;
+    clearTimeout(speechRenewalTimer);
+    speechRecoveryAttempts += 1;
+
+    if (!speakerStreaming) return;
+    if (speechRecoveryAttempts <= MAX_SPEECH_RECOVERY_ATTEMPTS) {
+      requestCaptureRenewal(`recuperación automática ${speechRecoveryAttempts}`);
+      return;
+    }
+
+    clearSpeechTimers();
+    renewalRequested = false;
+    socket.emit('speaker_error', {
+      message: 'No se pudo recuperar el procesamiento de audio. Detén y vuelve a iniciar la transmisión.',
+    });
+  }
+
+  function startRecognitionStream() {
+    if (!speakerStreaming || !speechClient) return;
+    clearSpeechTimers();
+    renewalRequested = false;
+
+    const nextStream = speechClient.streamingRecognize(SPEECH_REQUEST);
+    recognizeStream = nextStream;
+    nextStream
+      .on('error', (error) => handleRecognitionError(error, nextStream))
+      .on('data', (data) => {
+        if (nextStream !== recognizeStream) return;
+        const result = data.results && data.results[0];
+        const alternative = result && result.alternatives && result.alternatives[0];
+        if (!alternative) return;
+
+        speechRecoveryAttempts = 0;
+        latestTranscript = alternative.transcript;
+        const isFinal = Boolean(result.isFinal);
+        const chunk = transcriptChunker.next({ transcript: latestTranscript, isFinal });
+        if (isFinal) latestTranscript = '';
+        enqueueTranslation(chunk, isFinal);
+      });
+    scheduleSpeechRenewal();
+    console.log('Stream de reconocimiento activo.');
+  }
+
+  function rotateRecognitionStream(reason) {
+    if (!speakerStreaming) return;
+    console.log(`Renovando stream de reconocimiento: ${reason}`);
+    finishRecognitionStream({ flush: true });
+    transcriptChunker.reset();
+    startRecognitionStream();
+  }
+
   socket.on('start_speaker_stream', () => {
     if (socket.role !== 'speaker') return;
-    console.log("Iniciando stream del orador...");
-
-    if (recognizeStream) recognizeStream.end();
+    console.log('Iniciando stream del orador...');
+    speakerStreaming = true;
+    speechRecoveryAttempts = 0;
+    finishRecognitionStream({ flush: false });
     transcriptChunker.reset();
+    if (speechClient) startRecognitionStream();
+    else socket.emit('speaker_error', { message: 'El servicio de reconocimiento no está disponible.' });
+  });
 
-    // Configuración para el streaming de audio
-    const request = {
-      config: {
-        encoding: 'WEBM_OPUS', // Ajusta según el formato capturado en el frontend (MediaRecorder suele usar webm)
-        sampleRateHertz: 48000,
-        languageCode: 'es-ES',
-        enableAutomaticPunctuation: true,
-        model: 'latest_long',
-      },
-      interimResults: true,
-    };
-
-    if(speechClient) {
-        recognizeStream = speechClient
-            .streamingRecognize(request)
-            .on('error', (err) => {
-                console.error("Error en Speech-to-Text:", err);
-                socket.emit('speaker_error', { message: 'No se pudo procesar el audio. Intenta reiniciar la transmisión.' });
-            })
-            .on('data', (data) => {
-                const result = data.results && data.results[0];
-                const alternative = result && result.alternatives && result.alternatives[0];
-                if (!alternative) return;
-
-                const chunk = transcriptChunker.next({
-                  transcript: alternative.transcript,
-                  isFinal: Boolean(result.isFinal),
-                });
-                enqueueTranslation(chunk, Boolean(result.isFinal));
-            });
-    }
+  socket.on('restart_speaker_stream', () => {
+    if (socket.role !== 'speaker' || !speakerStreaming) return;
+    rotateRecognitionStream('nuevo contenedor de audio del navegador');
   });
 
   socket.on('audio_data', (audioChunk) => {
     if (socket.role === 'speaker' && recognizeStream) {
-      recognizeStream.write(audioChunk);
+      try { recognizeStream.write(audioChunk); }
+      catch (error) {
+        console.error('Error enviando audio al reconocimiento:', error);
+        requestCaptureRenewal('fallo al enviar audio');
+      }
     }
   });
 
   socket.on('stop_speaker_stream', () => {
-    if (socket.role === 'speaker' && recognizeStream) {
-      recognizeStream.end();
-      recognizeStream = null;
-      transcriptChunker.reset();
-      console.log("Stream del orador detenido.");
-    }
+    if (socket.role !== 'speaker') return;
+    speakerStreaming = false;
+    renewalRequested = false;
+    finishRecognitionStream({ flush: true });
+    transcriptChunker.reset();
+    console.log('Stream del orador detenido.');
   });
 
   socket.on('disconnect', () => {
     console.log(`Usuario desconectado: ${socket.id}`);
-    if (recognizeStream) {
-      recognizeStream.end();
-    }
+    speakerStreaming = false;
+    renewalRequested = false;
+    finishRecognitionStream({ flush: false });
     transcriptChunker.reset();
   });
 });

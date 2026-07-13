@@ -89,8 +89,9 @@
     const supportedVoices = new Set(['clear','deep','soft']);
     let selectedVoice = supportedVoices.has(params.get('voice')) ? params.get('voice') : 'clear';
     const languageNames = {en:'Inglés',fr:'Francés',pt:'Portugués',es:'Español original'};
-    let clearTimer, currentPlayback, playing = false, playbackGeneration = 0;
-    let audioQueue = [];
+    let clearTimer, audioContext = null, playbackGeneration = 0, pendingDecodes = 0;
+    let decodeChain = Promise.resolve(), nextPlaybackAt = 0;
+    const scheduledSources = new Set();
 
     languageSelect.value = selectedLanguage;
     voiceSelect.value = selectedVoice;
@@ -117,29 +118,39 @@
     }
     function clearAudioQueue() {
       playbackGeneration += 1;
-      audioQueue.forEach(item => URL.revokeObjectURL(item.url)); audioQueue=[];
-      if (currentPlayback) {
-        const {audio,url}=currentPlayback; audio.onended=null; audio.onerror=null; audio.pause(); audio.currentTime=0;
-        audio.removeAttribute('src'); audio.load(); URL.revokeObjectURL(url); currentPlayback=null;
-      }
-      playing=false;
+      pendingDecodes=0; decodeChain=Promise.resolve();
+      scheduledSources.forEach(source=>{try{source.stop();}catch(_error){}}); scheduledSources.clear();
+      nextPlaybackAt=audioContext?.currentTime||0;
     }
-    function playNext() {
-      if (playing || !audioQueue.length || audioSelect.value !== 'on') return;
-      const item=audioQueue.shift();
-      if (item.language !== selectedLanguage || item.voice !== selectedVoice || item.generation !== playbackGeneration) { URL.revokeObjectURL(item.url); playNext(); return; }
-      const audio=new Audio(item.url); playing=true; currentPlayback={audio,url:item.url};
-      const finish=()=>{ if(currentPlayback?.audio!==audio)return; URL.revokeObjectURL(item.url); playing=false; currentPlayback=null; playNext(); };
-      audio.onended=finish; audio.onerror=finish;
-      audio.play().catch(()=>{
-        if(currentPlayback?.audio!==audio)return;
-        playing=false; currentPlayback=null; audioQueue.unshift(item); statusText.textContent='Haz clic para activar audio';
-      });
+    function ensureAudioContext() {
+      if(!audioContext)audioContext=new (window.AudioContext||window.webkitAudioContext)();
+      if(audioContext.state==='suspended')audioContext.resume().catch(()=>{statusText.textContent='Haz clic para activar audio';});
+      return audioContext;
+    }
+    function asArrayBuffer(buffer) {
+      if(buffer instanceof ArrayBuffer)return buffer.slice(0);
+      if(ArrayBuffer.isView(buffer))return buffer.buffer.slice(buffer.byteOffset,buffer.byteOffset+buffer.byteLength);
+      if(buffer?.type==='Buffer'&&Array.isArray(buffer.data))return Uint8Array.from(buffer.data).buffer;
+      return new Uint8Array(buffer).buffer;
     }
     function enqueueAudio(buffer,audioLanguage,audioVoice) {
       if(audioSelect.value!=='on' || audioLanguage!==selectedLanguage || audioVoice!==selectedVoice)return;
-      const blob=new Blob([buffer],{type:'audio/mpeg'});
-      audioQueue.push({url:URL.createObjectURL(blob),language:audioLanguage,voice:audioVoice,generation:playbackGeneration}); playNext();
+      const generation=playbackGeneration;
+      const encodedAudio=asArrayBuffer(buffer);
+      pendingDecodes+=1;
+      decodeChain=decodeChain.then(async()=>{
+        const context=ensureAudioContext();
+        const decoded=await context.decodeAudioData(encodedAudio);
+        if(generation!==playbackGeneration||audioSelect.value!=='on'||audioLanguage!==selectedLanguage||audioVoice!==selectedVoice)return;
+        const now=context.currentTime;
+        const backlog=Math.max(0,nextPlaybackAt-now);
+        const rate=backlog>5?1.05:1;
+        const source=context.createBufferSource(); source.buffer=decoded; source.playbackRate.value=rate; source.connect(context.destination);
+        const startsAt=Math.max(now+.06,nextPlaybackAt); nextPlaybackAt=startsAt+decoded.duration/rate;
+        scheduledSources.add(source); source.onended=()=>scheduledSources.delete(source); source.start(startsAt);
+      }).catch(error=>console.error('No se pudo preparar el audio:',error)).finally(()=>{
+        if(generation===playbackGeneration)pendingDecodes=Math.max(0,pendingDecodes-1);
+      });
     }
     function cleanUrl() {
       const query = new URLSearchParams({lang:selectedLanguage,voice:selectedVoice,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
@@ -186,9 +197,9 @@
     });
     audioSelect.addEventListener('change',()=>{
       clearAudioQueue(); socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
-      if(audioSelect.value==='on')playNext();
+      if(audioSelect.value==='on')ensureAudioContext();
     });
-    document.addEventListener('pointerdown',()=>{ if(audioSelect.value==='on')playNext(); });
+    document.addEventListener('pointerdown',()=>{ if(audioSelect.value==='on')ensureAudioContext(); });
     modeSelect.addEventListener('change',applyAppearance);
     positionSelect.addEventListener('change',applyAppearance);
     copyButton.addEventListener('click',copyCleanUrl);

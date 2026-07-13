@@ -99,56 +99,69 @@
   const openOverlayButton = document.getElementById('openOverlay');
   const openProjectionButton = document.getElementById('openProjection');
   const copyOverlayButton = document.getElementById('copyOverlay');
-  let socket, currentPlayback, joined = false, playing = false;
-  let audioQueue = [], recentText = [], playbackGeneration = 0;
+  let socket, joined = false, playing = false, audioContext = null;
+  let recentText = [], playbackGeneration = 0, pendingDecodes = 0;
+  let decodeChain = Promise.resolve(), nextPlaybackAt = 0;
+  const scheduledSources = new Set();
   let selectedLanguage = language.value;
   let selectedVoice = voice.value;
 
   for(let i=0;i<22;i++) wave.insertAdjacentHTML('beforeend','<span></span>');
   const languageNames = { en:'Inglés', fr:'Francés', pt:'Portugués', es:'Español original' };
 
-  function updateQueue() { queueLabel.textContent = `Cola de audio: ${audioQueue.length + (playing ? 1 : 0)}`; }
+  function updateQueue() { queueLabel.textContent = `Cola de audio: ${pendingDecodes + scheduledSources.size}`; }
+  function ensureAudioContext() {
+    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    return audioContext;
+  }
+  function asArrayBuffer(buffer) {
+    if (buffer instanceof ArrayBuffer) return buffer.slice(0);
+    if (ArrayBuffer.isView(buffer)) return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    if (buffer?.type === 'Buffer' && Array.isArray(buffer.data)) return Uint8Array.from(buffer.data).buffer;
+    return new Uint8Array(buffer).buffer;
+  }
   function clearAudioQueue() {
     playbackGeneration += 1;
-    audioQueue.forEach(item => URL.revokeObjectURL(item.url)); audioQueue = [];
-    if (currentPlayback) {
-      const { audio, url } = currentPlayback;
-      audio.onended = null; audio.onerror = null;
-      audio.pause(); audio.currentTime = 0;
-      audio.removeAttribute('src'); audio.load();
-      URL.revokeObjectURL(url);
-      currentPlayback = null;
-    }
+    pendingDecodes = 0;
+    decodeChain = Promise.resolve();
+    scheduledSources.forEach(source => { try { source.stop(); } catch (_error) {} });
+    scheduledSources.clear();
+    nextPlaybackAt = audioContext?.currentTime || 0;
     playing = false; wave.classList.remove('is-playing'); updateQueue();
-  }
-  function playNext() {
-    if (playing || !audioQueue.length) { updateQueue(); return; }
-    const item = audioQueue.shift(); playing = true; wave.classList.add('is-playing');
-    if (item.generation !== playbackGeneration || item.language !== selectedLanguage || item.voice !== selectedVoice) {
-      URL.revokeObjectURL(item.url); playing = false; playNext(); return;
-    }
-
-    const audio = new Audio(item.url);
-    currentPlayback = { audio, url:item.url, generation:item.generation };
-    const finish = () => {
-      if (currentPlayback?.audio !== audio) return;
-      URL.revokeObjectURL(item.url); playing=false; currentPlayback=null;
-      if(!audioQueue.length) wave.classList.remove('is-playing');
-      updateQueue(); playNext();
-    };
-    audio.onended = finish; audio.onerror = finish;
-    audio.play().catch(finish); updateQueue();
   }
   function enqueueAudio(buffer, audioLanguage, audioVoice) {
     if (audioLanguage !== selectedLanguage || audioVoice !== selectedVoice) return;
-    const blob = new Blob([buffer], { type:'audio/mpeg' });
-    audioQueue.push({
-      url:URL.createObjectURL(blob),
-      language:audioLanguage,
-      voice:audioVoice,
-      generation:playbackGeneration,
+    const generation = playbackGeneration;
+    const encodedAudio = asArrayBuffer(buffer);
+    pendingDecodes += 1; updateQueue();
+    decodeChain = decodeChain.then(async () => {
+      const context = ensureAudioContext();
+      const decoded = await context.decodeAudioData(encodedAudio);
+      if (generation !== playbackGeneration || audioLanguage !== selectedLanguage || audioVoice !== selectedVoice) return;
+
+      const now = context.currentTime;
+      const backlog = Math.max(0, nextPlaybackAt - now);
+      const rate = backlog > 5 ? 1.05 : 1;
+      const source = context.createBufferSource();
+      source.buffer = decoded;
+      source.playbackRate.value = rate;
+      source.connect(context.destination);
+      const startsAt = Math.max(now + 0.06, nextPlaybackAt);
+      nextPlaybackAt = startsAt + decoded.duration / rate;
+      scheduledSources.add(source);
+      playing = true; wave.classList.add('is-playing');
+      source.onended = () => {
+        scheduledSources.delete(source);
+        playing = scheduledSources.size > 0;
+        if (!playing) wave.classList.remove('is-playing');
+        updateQueue();
+      };
+      source.start(startsAt);
+    }).catch(error => console.error('No se pudo preparar el audio:', error)).finally(() => {
+      if (generation === playbackGeneration) pendingDecodes = Math.max(0, pendingDecodes - 1);
+      updateQueue();
     });
-    updateQueue(); playNext();
   }
   function showTranslation(text) {
     if (subtitle.textContent && !/Únete|Esperando/.test(subtitle.textContent)) recentText.unshift(subtitle.textContent);
@@ -157,6 +170,7 @@
   }
 
   function join() {
+    ensureAudioContext();
     joinButton.disabled = true; joinButton.textContent = 'Conectando…';
     socket = io(SERVER_URL, { transports:['websocket','polling'], reconnection:true });
     socket.on('connect', () => {
@@ -223,6 +237,7 @@
   language.addEventListener('change', switchLanguage);
   voice.addEventListener('change', switchVoice);
   joinButton.addEventListener('click', join);
+  document.addEventListener('pointerdown', ensureAudioContext, { passive:true });
   openOverlayButton.addEventListener('click', () => openOutput('transparent'));
   openProjectionButton.addEventListener('click', () => openOutput('projection'));
   copyOverlayButton.addEventListener('click', copyOverlayUrl);

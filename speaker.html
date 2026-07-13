@@ -88,7 +88,7 @@
   const connectionInfo = document.getElementById('connectionInfo');
   const microphoneInfo = document.getElementById('microphoneInfo');
   let recorder, mediaStream, audioContext, analyser, meterFrame, timerInterval, startedAt;
-  let isLive = false;
+  let isLive = false, renewingCapture = false;
 
   for (let i = 0; i < 18; i++) meter.insertAdjacentHTML('beforeend','<span class="rla-speaker__bar"></span>');
   const bars = [...meter.children];
@@ -101,11 +101,18 @@
 
   socket.on('connect', () => {
     socket.emit('join_role','speaker');
-    status.className = 'rla-speaker__status is-ready';
-    statusText.textContent = 'Listo';
+    if (isLive) {
+      renewCapture('start_speaker_stream');
+      status.className = 'rla-speaker__status is-live';
+      statusText.textContent = 'En vivo';
+      buttonText.textContent = 'Detener transmisión';
+    } else {
+      status.className = 'rla-speaker__status is-ready';
+      statusText.textContent = 'Listo';
+      buttonText.textContent = 'Iniciar transmisión';
+    }
     connectionInfo.textContent = 'Servidor conectado';
     button.disabled = false;
-    buttonText.textContent = 'Iniciar transmisión';
   });
   socket.on('disconnect', () => {
     status.className = 'rla-speaker__status';
@@ -114,7 +121,45 @@
     button.disabled = true;
   });
   socket.on('speaker_error', data => setNotice(data?.message || 'No se pudo procesar el audio.', true));
+  socket.on('renew_speaker_capture', () => renewCapture('restart_speaker_stream'));
   socket.on('connect_error', () => setNotice('El servidor está iniciando. La conexión se reintentará automáticamente.', false));
+
+  function createRecorder() {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    const instance = new MediaRecorder(mediaStream, { mimeType, audioBitsPerSecond: 64000 });
+    instance.ondataavailable = async event => {
+      if (!event.data.size) return;
+      const audioBuffer = await event.data.arrayBuffer();
+      if (isLive && recorder === instance && socket.connected) socket.emit('audio_data', audioBuffer);
+    };
+    return instance;
+  }
+
+  async function renewCapture(serverEvent) {
+    if (!isLive || renewingCapture || !mediaStream?.active) return;
+    renewingCapture = true;
+    try {
+      const previousRecorder = recorder;
+      if (previousRecorder && previousRecorder.state !== 'inactive') {
+        await new Promise(resolve => {
+          previousRecorder.addEventListener('stop', resolve, { once:true });
+          previousRecorder.stop();
+        });
+      }
+      if (!isLive || !socket.connected) return;
+
+      socket.emit(serverEvent);
+      recorder = createRecorder();
+      recorder.start(250);
+      connectionInfo.textContent = 'Transmisión estable';
+      setNotice('Transmitiendo y generando fragmentos de traducción en forma continua.');
+    } catch (error) {
+      console.error('No se pudo renovar la captura:', error);
+      setNotice('La renovación automática del audio falló. Detén y vuelve a iniciar la transmisión.', true);
+    } finally {
+      renewingCapture = false;
+    }
+  }
 
   function updateTimer() {
     const seconds = Math.floor((Date.now() - startedAt) / 1000);
@@ -136,11 +181,8 @@
       button.disabled = true;
       setNotice('Solicitando acceso al micrófono…');
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      recorder = new MediaRecorder(mediaStream, { mimeType, audioBitsPerSecond: 64000 });
-      recorder.ondataavailable = async event => {
-        if (event.data.size && socket.connected) socket.emit('audio_data', await event.data.arrayBuffer());
-      };
+      recorder = createRecorder();
+      isLive = true;
       recorder.start(250);
       socket.emit('start_speaker_stream');
 
@@ -150,24 +192,30 @@
       audioContext.createMediaStreamSource(mediaStream).connect(analyser);
       drawMeter();
 
-      isLive = true; startedAt = Date.now(); updateTimer(); timerInterval = setInterval(updateTimer,1000);
+      startedAt = Date.now(); updateTimer(); timerInterval = setInterval(updateTimer,1000);
       app.classList.add('is-live'); status.className = 'rla-speaker__status is-live';
       statusText.textContent = 'En vivo'; buttonText.textContent = 'Detener transmisión';
       microphoneInfo.textContent = 'Activo'; button.disabled = false;
       setNotice('Transmitiendo y generando fragmentos de traducción en forma continua.');
     } catch (error) {
+      isLive = false;
+      if (recorder?.state && recorder.state !== 'inactive') recorder.stop();
+      mediaStream?.getTracks().forEach(track => track.stop());
+      socket.emit('stop_speaker_stream');
       button.disabled = false;
       setNotice(error.name === 'NotAllowedError' ? 'Debes permitir el acceso al micrófono.' : 'No se pudo iniciar el micrófono.', true);
     }
   }
 
   function stop() {
+    isLive = false;
+    renewingCapture = false;
     if (recorder?.state !== 'inactive') recorder.stop();
     socket.emit('stop_speaker_stream');
     mediaStream?.getTracks().forEach(track => track.stop());
     cancelAnimationFrame(meterFrame); clearInterval(timerInterval); audioContext?.close();
     bars.forEach(bar => bar.style.height='7px');
-    isLive = false; app.classList.remove('is-live'); status.className = 'rla-speaker__status is-ready';
+    app.classList.remove('is-live'); status.className = 'rla-speaker__status is-ready';
     statusText.textContent = 'Listo'; buttonText.textContent = 'Iniciar transmisión'; microphoneInfo.textContent = 'Sin activar';
     setNotice('Transmisión detenida. Puedes volver a iniciarla cuando quieras.');
   }

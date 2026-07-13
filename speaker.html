@@ -4,7 +4,7 @@
   .rla-speaker {
     --ink: #f8fafc; --muted: #94a3b8; --line: rgba(148,163,184,.18);
     --accent: #7c3aed; --accent-2: #22d3ee; --danger: #fb7185;
-    min-height: 100vh; padding: clamp(20px,4vw,56px); color: var(--ink);
+    width:100vw; min-height:100vh; margin-left:calc(50% - 50vw); padding:clamp(20px,4vw,56px); color:var(--ink);
     background: radial-gradient(circle at 15% 10%,rgba(124,58,237,.26),transparent 34%),
                 radial-gradient(circle at 85% 82%,rgba(34,211,238,.16),transparent 32%),#070b18;
     font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -19,7 +19,7 @@
   .rla-speaker__status.is-live .rla-speaker__dot { background:#fb7185; animation:rlaPulse 1.3s infinite; }
   .rla-speaker__card { position:relative; overflow:hidden; padding:clamp(26px,5vw,58px); border:1px solid var(--line); border-radius:30px; background:linear-gradient(150deg,rgba(30,41,59,.82),rgba(15,23,42,.58)); box-shadow:0 30px 90px rgba(0,0,0,.38); backdrop-filter:blur(18px); }
   .rla-speaker__eyebrow { color:#a78bfa; font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; text-align:center; }
-  .rla-speaker h1 { margin:10px 0 8px; font-size:clamp(30px,5vw,52px); letter-spacing:-.045em; text-align:center; line-height:1.04; }
+  .rla-speaker h1 { margin:10px 0 8px; color:var(--ink)!important; font-size:clamp(30px,5vw,52px); letter-spacing:-.045em; text-align:center; line-height:1.04; }
   .rla-speaker__lead { max-width:600px; margin:0 auto 32px; color:var(--muted); text-align:center; font-size:clamp(15px,2vw,18px); line-height:1.6; }
   .rla-speaker__mic { width:150px; height:150px; margin:0 auto 22px; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(167,139,250,.34); background:radial-gradient(circle,rgba(124,58,237,.36),rgba(124,58,237,.08) 55%,transparent 56%); position:relative; }
   .rla-speaker__mic::before,.rla-speaker__mic::after { content:""; position:absolute; inset:15px; border:1px solid rgba(34,211,238,.22); border-radius:50%; }

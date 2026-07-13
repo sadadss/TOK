@@ -67,29 +67,54 @@
   const kicker = document.getElementById('listenerKicker');
   const wave = document.getElementById('listenerWave');
   const queueLabel = document.getElementById('listenerQueue');
-  let socket, currentAudio, joined = false, playing = false;
-  let audioQueue = [], recentText = [];
+  let socket, currentPlayback, joined = false, playing = false;
+  let audioQueue = [], recentText = [], playbackGeneration = 0;
+  let selectedLanguage = language.value;
 
   for(let i=0;i<22;i++) wave.insertAdjacentHTML('beforeend','<span></span>');
   const languageNames = { en:'Inglés', fr:'Francés', pt:'Portugués', es:'Español original' };
 
   function updateQueue() { queueLabel.textContent = `Cola de audio: ${audioQueue.length + (playing ? 1 : 0)}`; }
   function clearAudioQueue() {
+    playbackGeneration += 1;
     audioQueue.forEach(item => URL.revokeObjectURL(item.url)); audioQueue = [];
-    if(currentAudio){ currentAudio.pause(); currentAudio = null; }
+    if (currentPlayback) {
+      const { audio, url } = currentPlayback;
+      audio.onended = null; audio.onerror = null;
+      audio.pause(); audio.currentTime = 0;
+      audio.removeAttribute('src'); audio.load();
+      URL.revokeObjectURL(url);
+      currentPlayback = null;
+    }
     playing = false; wave.classList.remove('is-playing'); updateQueue();
   }
   function playNext() {
     if (playing || !audioQueue.length) { updateQueue(); return; }
     const item = audioQueue.shift(); playing = true; wave.classList.add('is-playing');
-    currentAudio = new Audio(item.url);
-    const finish = () => { URL.revokeObjectURL(item.url); playing=false; currentAudio=null; if(!audioQueue.length) wave.classList.remove('is-playing'); updateQueue(); playNext(); };
-    currentAudio.onended = finish; currentAudio.onerror = finish;
-    currentAudio.play().catch(finish); updateQueue();
+    if (item.generation !== playbackGeneration || item.language !== selectedLanguage) {
+      URL.revokeObjectURL(item.url); playing = false; playNext(); return;
+    }
+
+    const audio = new Audio(item.url);
+    currentPlayback = { audio, url:item.url, generation:item.generation };
+    const finish = () => {
+      if (currentPlayback?.audio !== audio) return;
+      URL.revokeObjectURL(item.url); playing=false; currentPlayback=null;
+      if(!audioQueue.length) wave.classList.remove('is-playing');
+      updateQueue(); playNext();
+    };
+    audio.onended = finish; audio.onerror = finish;
+    audio.play().catch(finish); updateQueue();
   }
-  function enqueueAudio(buffer) {
+  function enqueueAudio(buffer, audioLanguage) {
+    if (audioLanguage !== selectedLanguage) return;
     const blob = new Blob([buffer], { type:'audio/mpeg' });
-    audioQueue.push({ url:URL.createObjectURL(blob) }); updateQueue(); playNext();
+    audioQueue.push({
+      url:URL.createObjectURL(blob),
+      language:audioLanguage,
+      generation:playbackGeneration,
+    });
+    updateQueue(); playNext();
   }
   function showTranslation(text) {
     if (subtitle.textContent && !/Únete|Esperando/.test(subtitle.textContent)) recentText.unshift(subtitle.textContent);
@@ -101,7 +126,9 @@
     joinButton.disabled = true; joinButton.textContent = 'Conectando…';
     socket = io(SERVER_URL, { transports:['websocket','polling'], reconnection:true });
     socket.on('connect', () => {
-      joined = true; socket.emit('join_role','listener');
+      joined = true;
+      socket.emit('join_role','listener');
+      socket.emit('set_listener_language',selectedLanguage);
       status.classList.add('is-connected'); statusText.textContent = 'Conectado';
       kicker.textContent = `Escuchando en ${languageNames[language.value]}`;
       subtitle.textContent = 'Esperando la voz del orador…';
@@ -110,17 +137,24 @@
     socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando'; });
     socket.on('connect_error', () => { statusText.textContent='Servidor iniciando'; joinButton.textContent='Reintentando…'; });
     socket.on('translation', data => {
-      if (data.lang !== language.value) return;
+      if (data.lang !== selectedLanguage) return;
       showTranslation(data.text);
-      if (data.audio) enqueueAudio(data.audio);
+      if (data.audio) enqueueAudio(data.audio, data.lang);
     });
   }
 
-  language.addEventListener('change', () => {
-    clearAudioQueue(); recentText=[]; history.textContent='';
-    kicker.textContent = joined ? `Escuchando en ${languageNames[language.value]}` : 'Listo para comenzar';
+  function switchLanguage() {
+    const nextLanguage = language.value;
+    if (nextLanguage === selectedLanguage) return;
+    selectedLanguage = nextLanguage;
+    clearAudioQueue();
+    socket?.emit('set_listener_language', selectedLanguage);
+    recentText=[]; history.textContent='';
+    kicker.textContent = joined ? `Escuchando en ${languageNames[selectedLanguage]}` : 'Listo para comenzar';
     if(joined) subtitle.textContent='Esperando el siguiente fragmento…';
-  });
+  }
+  language.addEventListener('input', switchLanguage);
+  language.addEventListener('change', switchLanguage);
   joinButton.addEventListener('click', join);
   window.addEventListener('beforeunload', clearAudioQueue);
 })();

@@ -86,6 +86,8 @@
 <script>
 (() => {
   const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
+  const pageParams = new URLSearchParams(window.location.search);
+  const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
   const joinButton = document.getElementById('listenerJoin');
   const language = document.getElementById('listenerLanguage');
   const voice = document.getElementById('listenerVoice');
@@ -175,7 +177,7 @@
     socket = io(SERVER_URL, { transports:['websocket','polling'], reconnection:true });
     socket.on('connect', () => {
       joined = true;
-      socket.emit('join_role','listener');
+      socket.emit('join_role',{ role:'listener', eventId:EVENT_ID });
       socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:true});
       status.classList.add('is-connected'); statusText.textContent = 'Conectado';
       kicker.textContent = `Escuchando en ${languageNames[language.value]}`;
@@ -184,6 +186,15 @@
     });
     socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando'; });
     socket.on('connect_error', () => { statusText.textContent='Servidor iniciando'; joinButton.textContent='Reintentando…'; });
+    socket.on('server_busy', data => {
+      statusText.textContent='Demo completa';
+      subtitle.textContent=data?.message || 'La demo alcanzó su capacidad temporal.';
+    });
+    socket.on('event_status', data => {
+      if (data?.eventId !== EVENT_ID) return;
+      statusText.textContent = data.live ? 'Orador en vivo' : 'Conectado · en espera';
+      kicker.textContent = data.live ? `Escuchando en ${languageNames[selectedLanguage]}` : 'Esperando al orador';
+    });
     socket.on('translation', data => {
       if (data.lang !== selectedLanguage) return;
       showTranslation(data.text);
@@ -214,7 +225,7 @@
     if (joined && selectedLanguage !== 'es') subtitle.textContent='Voz cambiada. Esperando el siguiente fragmento…';
   }
   function outputUrl(mode) {
-    const params = new URLSearchParams({ lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1' });
+    const params = new URLSearchParams({ event:EVENT_ID, lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1' });
     return `${SERVER_URL}/overlay?${params.toString()}`;
   }
   function openOutput(mode) {

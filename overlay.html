@@ -73,6 +73,7 @@
     const SERVER_URL = window.location.origin;
     const supported = new Set(['es','en','fr','pt']);
     const params = new URLSearchParams(window.location.search);
+    const EVENT_ID = (params.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
     const languageSelect = document.getElementById('overlayLanguage');
     const voiceSelect = document.getElementById('overlayVoice');
     const audioSelect = document.getElementById('overlayAudio');
@@ -153,7 +154,7 @@
       });
     }
     function cleanUrl() {
-      const query = new URLSearchParams({lang:selectedLanguage,voice:selectedVoice,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
+      const query = new URLSearchParams({event:EVENT_ID,lang:selectedLanguage,voice:selectedVoice,mode:modeSelect.value,position:positionSelect.value,audio:audioSelect.value==='on'?'1':'0',clean:'1'});
       return `${window.location.origin}${window.location.pathname}?${query.toString()}`;
     }
     async function copyCleanUrl() {
@@ -170,12 +171,16 @@
     if (!document.body.classList.contains('is-clean')) caption.classList.add('is-visible');
     const socket = io(SERVER_URL, {transports:['websocket','polling'],reconnection:true});
     socket.on('connect', () => {
-      socket.emit('join_role','listener');
+      socket.emit('join_role',{role:'listener',eventId:EVENT_ID});
       socket.emit('set_listener_preferences',{language:selectedLanguage,voice:selectedVoice,audio:audioSelect.value==='on'});
       status.classList.add('is-connected'); statusText.textContent='Conectado';
     });
     socket.on('disconnect', () => { status.classList.remove('is-connected'); statusText.textContent='Reconectando…'; });
     socket.on('connect_error', () => { statusText.textContent='Servidor iniciando…'; });
+    socket.on('server_busy', data => { statusText.textContent=data?.message || 'Demo completa'; });
+    socket.on('event_status', data => {
+      if(data?.eventId===EVENT_ID)statusText.textContent=data.live?'Orador en vivo':'Conectado · en espera';
+    });
     socket.on('translation', data => {
       if (data.lang !== selectedLanguage) return;
       setCaption(data.text);

@@ -67,7 +67,7 @@
       <div class="rla-speaker__grid">
         <div class="rla-speaker__info"><small>Conexión</small><strong id="connectionInfo">Iniciando</strong></div>
         <div class="rla-speaker__info"><small>Micrófono</small><strong id="microphoneInfo">Sin activar</strong></div>
-        <div class="rla-speaker__info"><small>Modo</small><strong>Traducción continua</strong></div>
+        <div class="rla-speaker__info"><small>Oyentes conectados</small><strong id="listenerCount">0</strong></div>
       </div>
       <p class="rla-speaker__notice" id="speakerNotice">Puedes hablar sin esperar al final de cada frase.</p>
     </section>
@@ -77,6 +77,9 @@
 <script>
 (() => {
   const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
+  const pageParams = new URLSearchParams(window.location.search);
+  const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
+  const SPEAKER_TOKEN = pageParams.get('token') || '';
   const app = document.getElementById('rlaSpeakerApp');
   const button = document.getElementById('speakerButton');
   const buttonText = document.getElementById('speakerButtonText');
@@ -87,12 +90,17 @@
   const meter = document.getElementById('speakerMeter');
   const connectionInfo = document.getElementById('connectionInfo');
   const microphoneInfo = document.getElementById('microphoneInfo');
+  const listenerCount = document.getElementById('listenerCount');
   let recorder, mediaStream, audioContext, analyser, meterFrame, timerInterval, startedAt;
   let isLive = false, renewingCapture = false;
 
   for (let i = 0; i < 18; i++) meter.insertAdjacentHTML('beforeend','<span class="rla-speaker__bar"></span>');
   const bars = [...meter.children];
-  const socket = io(SERVER_URL, { transports: ['websocket','polling'], reconnection: true });
+  const socket = io(SERVER_URL, {
+    transports: ['websocket','polling'],
+    reconnection: true,
+    auth: { speakerToken: SPEAKER_TOKEN },
+  });
 
   function setNotice(message, error = false) {
     notice.textContent = message;
@@ -100,7 +108,7 @@
   }
 
   socket.on('connect', () => {
-    socket.emit('join_role','speaker');
+    socket.emit('join_role',{ role:'speaker', eventId:EVENT_ID });
     if (isLive) {
       renewCapture('start_speaker_stream');
       status.className = 'rla-speaker__status is-live';
@@ -121,6 +129,11 @@
     button.disabled = true;
   });
   socket.on('speaker_error', data => setNotice(data?.message || 'No se pudo procesar el audio.', true));
+  socket.on('speaker_warning', data => setNotice(data?.message || 'La traducción está recuperando el ritmo.', false));
+  socket.on('server_busy', data => setNotice(data?.message || 'La demo está temporalmente llena.', true));
+  socket.on('event_status', data => {
+    if (data?.eventId === EVENT_ID) listenerCount.textContent = String(data.listeners || 0);
+  });
   socket.on('renew_speaker_capture', () => renewCapture('restart_speaker_stream'));
   socket.on('connect_error', () => setNotice('El servidor está iniciando. La conexión se reintentará automáticamente.', false));
 
@@ -148,7 +161,7 @@
       }
       if (!isLive || !socket.connected) return;
 
-      socket.emit(serverEvent);
+      socket.emit(serverEvent, serverEvent === 'start_speaker_stream' ? { token:SPEAKER_TOKEN } : undefined);
       recorder = createRecorder();
       recorder.start(250);
       connectionInfo.textContent = 'Transmisión estable';
@@ -182,9 +195,15 @@
       setNotice('Solicitando acceso al micrófono…');
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
       recorder = createRecorder();
+      const response = await new Promise((resolve, reject) => {
+        socket.timeout(10000).emit('start_speaker_stream', { token:SPEAKER_TOKEN }, (error, result) => {
+          if (error) reject(new Error('El servidor no respondió a tiempo.'));
+          else resolve(result || { ok:false, message:'No se pudo iniciar la transmisión.' });
+        });
+      });
+      if (!response.ok) throw new Error(response.message || 'No se pudo iniciar la transmisión.');
       isLive = true;
       recorder.start(250);
-      socket.emit('start_speaker_stream');
 
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       analyser = audioContext.createAnalyser();
@@ -203,7 +222,7 @@
       mediaStream?.getTracks().forEach(track => track.stop());
       socket.emit('stop_speaker_stream');
       button.disabled = false;
-      setNotice(error.name === 'NotAllowedError' ? 'Debes permitir el acceso al micrófono.' : 'No se pudo iniciar el micrófono.', true);
+      setNotice(error.name === 'NotAllowedError' ? 'Debes permitir el acceso al micrófono.' : (error.message || 'No se pudo iniciar el micrófono.'), true);
     }
   }
 

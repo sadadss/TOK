@@ -9,20 +9,75 @@ const textToSpeech = require('@google-cloud/text-to-speech');
 const cors = require('cors');
 const { createTranscriptChunker } = require('./transcript-chunker');
 const { DEFAULT_VOICE, VOICE_PROFILES, googleVoiceName, normalizeVoice } = require('./voice-config');
+const {
+  DEFAULT_EVENT_ID,
+  claimSpeaker,
+  configuredOrigins,
+  createByteRateGuard,
+  isAllowedOrigin,
+  parseRoleRequest,
+  releaseSpeaker,
+  withTimeout,
+} = require('./demo-guard');
 
 const app = express();
-app.use(cors());
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'live-translation' }));
+const extraOrigins = configuredOrigins(process.env.ALLOWED_ORIGINS);
+const corsOptions = {
+  origin(origin, callback) {
+    callback(isAllowedOrigin(origin, extraOrigins) ? null : new Error('Origen no permitido'), true);
+  },
+  methods: ['GET', 'POST'],
+};
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+app.use(cors(corsOptions));
+app.get('/', (_req, res) => res.json({
+  service: 'RLA Traducción en vivo',
+  mode: 'demo',
+  speaker: '/speaker?event=demo',
+  listener: '/listener?event=demo',
+  overlay: '/overlay?event=demo&lang=en&voice=clear&mode=transparent&audio=1&clean=1',
+  health: '/health',
+}));
 app.get(['/overlay', '/overlay.html'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'overlay.html'));
 });
+app.get(['/speaker', '/speaker.html'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'speaker.html'));
+});
+app.get(['/listener', '/listener.html'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'listener.html'));
+});
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "*", // En producción, limita esto al dominio de tu WordPress
-    methods: ["GET", "POST"]
-  }
+  cors: corsOptions,
+  allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin, extraOrigins)),
+  maxHttpBufferSize: 100 * 1024,
+  pingInterval: 20000,
+  pingTimeout: 15000,
 });
+
+const serverStartedAt = Date.now();
+const activeSpeakers = new Map();
+const MAX_CONNECTIONS = Math.max(10, Number(process.env.MAX_CONNECTIONS) || 150);
+const GOOGLE_CALL_TIMEOUT_MS = Math.max(5000, Number(process.env.GOOGLE_CALL_TIMEOUT_MS) || 15000);
+const MAX_SYNTHESIS_BACKLOG = Math.max(2, Number(process.env.MAX_SYNTHESIS_BACKLOG) || 6);
+const MAX_TRANSLATION_BACKLOG = Math.max(2, Number(process.env.MAX_TRANSLATION_BACKLOG) || 8);
+const SPEAKER_TOKEN = String(process.env.SPEAKER_TOKEN || '');
+const LOG_TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === 'true';
+
+app.get('/health', (_req, res) => res.json({
+  ok: Boolean(speechClient && translateClient && ttsClient),
+  service: 'live-translation',
+  uptimeSeconds: Math.floor((Date.now() - serverStartedAt) / 1000),
+  connections: io.engine.clientsCount,
+  maxConnections: MAX_CONNECTIONS,
+  liveEvents: activeSpeakers.size,
+}));
 
 // Clientes de Google Cloud
 // Asumen que GOOGLE_APPLICATION_CREDENTIALS está en el .env
@@ -60,15 +115,42 @@ const SPEECH_REQUEST = {
   interimResults: true,
 };
 
-function languageRoom(language) {
-  return `listener:${language}`;
+function eventRoom(eventId) {
+  return `event:${eventId}`;
 }
 
-function voiceRoom(language, voice) {
-  return `${languageRoom(language)}:${voice}`;
+function languageRoom(eventId, language) {
+  return `${eventRoom(eventId)}:listener:${language}`;
+}
+
+function voiceRoom(eventId, language, voice) {
+  return `${languageRoom(eventId, language)}:${voice}`;
+}
+
+function eventStatus(eventId) {
+  const members = io.sockets.adapter.rooms.get(eventRoom(eventId)) || new Set();
+  let listeners = 0;
+  for (const socketId of members) {
+    if (io.sockets.sockets.get(socketId)?.role === 'listener') listeners += 1;
+  }
+  return {
+    eventId,
+    live: activeSpeakers.has(eventId),
+    listeners,
+  };
+}
+
+function broadcastEventStatus(eventId) {
+  io.to(eventRoom(eventId)).emit('event_status', eventStatus(eventId));
 }
 
 io.on('connection', (socket) => {
+  if (io.engine.clientsCount > MAX_CONNECTIONS) {
+    socket.emit('server_busy', { message: 'La demo alcanzó su capacidad temporal. Intenta nuevamente en unos minutos.' });
+    socket.disconnect(true);
+    return;
+  }
+
   console.log(`Usuario conectado: ${socket.id}`);
   let recognizeStream = null;
   let speakerStreaming = false;
@@ -80,16 +162,63 @@ io.on('connection', (socket) => {
   let speechRecoveryAttempts = 0;
   let segmentSequence = 0;
   let translationQueue = Promise.resolve();
+  let translationBacklog = 0;
+  let synthesisQueue = Promise.resolve();
+  let synthesisBacklog = 0;
   const transcriptChunker = createTranscriptChunker();
+  const acceptsAudioChunk = createByteRateGuard();
+
+  async function synthesizeAndBroadcast(translations, segmentId, isFinal, eventId) {
+    await Promise.all(translations.map(async ({ code, languageCode, translation }) => {
+      const activeVoices = VOICE_KEYS.filter((voice) => (
+        io.sockets.adapter.rooms.get(voiceRoom(eventId, code, voice))?.size
+      ));
+      await Promise.all(activeVoices.map(async (voice) => {
+        try {
+          const [ttsResponse] = await withTimeout(ttsClient.synthesizeSpeech({
+            input: { text: translation },
+            voice: { languageCode, name: googleVoiceName(languageCode, voice) },
+            audioConfig: { audioEncoding: 'MP3' },
+          }), GOOGLE_CALL_TIMEOUT_MS, `síntesis ${code}/${voice}`);
+          io.to(voiceRoom(eventId, code, voice)).emit('translation_audio', {
+            segmentId,
+            lang: code,
+            voice,
+            audio: ttsResponse.audioContent,
+            isFinal,
+          });
+        } catch (ttsError) {
+          console.error(`Error generando audio ${code}/${voice}:`, ttsError);
+        }
+      }));
+    }));
+  }
+
+  function enqueueSynthesis(translations, segmentId, isFinal, eventId) {
+    if (!translations.length) return;
+    if (synthesisBacklog >= MAX_SYNTHESIS_BACKLOG) {
+      console.warn(`Audio omitido por cola saturada en ${eventId}: ${segmentId}`);
+      socket.emit('speaker_warning', { message: 'La voz traducida está atrasada; se priorizaron los fragmentos más recientes.' });
+      return;
+    }
+    synthesisBacklog += 1;
+    synthesisQueue = synthesisQueue
+      .then(() => synthesizeAndBroadcast(translations, segmentId, isFinal, eventId))
+      .catch((error) => console.error('Error en la cola de síntesis:', error))
+      .finally(() => { synthesisBacklog = Math.max(0, synthesisBacklog - 1); });
+  }
 
   async function translateAndBroadcast(text, isFinal) {
     const normalizedText = String(text || '').trim();
     if (!normalizedText) return;
 
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
     const segmentId = `${socket.id}-${++segmentSequence}`;
-    console.log(`Orador (ES${isFinal ? ', final' : ', parcial'}): ${normalizedText}`);
+    console.log(LOG_TRANSCRIPTS
+      ? `Orador (ES${isFinal ? ', final' : ', parcial'}): ${normalizedText}`
+      : `Segmento ${segmentId}: ${normalizedText.length} caracteres`);
 
-    io.to(languageRoom('es')).emit('translation', {
+    io.to(languageRoom(eventId, 'es')).emit('translation', {
       segmentId,
       lang: 'es',
       text: normalizedText,
@@ -97,69 +226,82 @@ io.on('connection', (socket) => {
       isFinal,
     });
 
-    await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode }) => {
+    const translations = await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode }) => {
       try {
-        const [translation] = await translateClient.translate(normalizedText, code);
-        io.to(languageRoom(code)).emit('translation', {
+        const [translation] = await withTimeout(
+          translateClient.translate(normalizedText, code),
+          GOOGLE_CALL_TIMEOUT_MS,
+          `traducción ${code}`
+        );
+        io.to(languageRoom(eventId, code)).emit('translation', {
           segmentId,
           lang: code,
           text: translation,
           audio: null,
           isFinal,
         });
-
-        const activeVoices = VOICE_KEYS.filter((voice) => io.sockets.adapter.rooms.get(voiceRoom(code, voice))?.size);
-        await Promise.all(activeVoices.map(async (voice) => {
-          try {
-            const [ttsResponse] = await ttsClient.synthesizeSpeech({
-              input: { text: translation },
-              voice: { languageCode, name: googleVoiceName(languageCode, voice) },
-              audioConfig: { audioEncoding: 'MP3' },
-            });
-            io.to(voiceRoom(code, voice)).emit('translation_audio', {
-              segmentId,
-              lang: code,
-              voice,
-              audio: ttsResponse.audioContent,
-              isFinal,
-            });
-          } catch (ttsError) {
-            console.error(`Error generando audio ${code}/${voice}:`, ttsError);
-          }
-        }));
+        return { code, languageCode, translation };
       } catch (translationError) {
         console.error(`Error traduciendo idioma ${code}:`, translationError);
+        return null;
       }
     }));
+    enqueueSynthesis(translations.filter(Boolean), segmentId, isFinal, eventId);
   }
 
   function enqueueTranslation(text, isFinal) {
     if (!text) return;
+    if (translationBacklog >= MAX_TRANSLATION_BACKLOG) {
+      console.warn(`Texto omitido por cola saturada para ${socket.id}`);
+      socket.emit('speaker_warning', { message: 'La traducción está saturada; se priorizarán los fragmentos siguientes.' });
+      return;
+    }
+    translationBacklog += 1;
     translationQueue = translationQueue
       .then(() => translateAndBroadcast(text, isFinal))
-      .catch((error) => console.error('Error en la cola de traducción:', error));
+      .catch((error) => console.error('Error en la cola de traducción:', error))
+      .finally(() => { translationBacklog = Math.max(0, translationBacklog - 1); });
   }
 
-  socket.on('join_role', (role) => {
+  socket.on('join_role', (request, acknowledge = () => {}) => {
+    const { role, eventId } = parseRoleRequest(request);
+    if (!['speaker', 'listener'].includes(role)) {
+      acknowledge({ ok: false, message: 'Rol no válido.' });
+      return;
+    }
+    if (socket.role && socket.role !== role) {
+      acknowledge({ ok: false, message: 'No se puede cambiar de rol durante una conexión.' });
+      return;
+    }
+    if (socket.eventId && socket.eventId !== eventId) {
+      acknowledge({ ok: false, message: 'No se puede cambiar de evento durante una conexión.' });
+      return;
+    }
     socket.role = role;
-    socket.join(role);
-    console.log(`Socket ${socket.id} unido como ${role}`);
+    socket.eventId = eventId;
+    socket.join(eventRoom(eventId));
+    socket.join(`${eventRoom(eventId)}:role:${role}`);
+    console.log(`Socket ${socket.id} unido como ${role} en ${eventId}`);
+    acknowledge({ ok: true, ...eventStatus(eventId) });
+    broadcastEventStatus(eventId);
   });
 
   function setListenerPreferences(language, voice, audioEnabled = true) {
     if (socket.role !== 'listener' || !LISTENER_LANGUAGES.has(language)) return;
     const selectedVoice = normalizeVoice(voice);
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
 
     for (const supportedLanguage of LISTENER_LANGUAGES) {
-      socket.leave(languageRoom(supportedLanguage));
-      for (const voiceKey of VOICE_KEYS) socket.leave(voiceRoom(supportedLanguage, voiceKey));
+      socket.leave(languageRoom(eventId, supportedLanguage));
+      for (const voiceKey of VOICE_KEYS) socket.leave(voiceRoom(eventId, supportedLanguage, voiceKey));
     }
-    socket.join(languageRoom(language));
-    if (language !== 'es' && audioEnabled) socket.join(voiceRoom(language, selectedVoice));
+    socket.join(languageRoom(eventId, language));
+    if (language !== 'es' && audioEnabled) socket.join(voiceRoom(eventId, language, selectedVoice));
     socket.listenerLanguage = language;
     socket.listenerVoice = selectedVoice;
     socket.listenerAudioEnabled = audioEnabled;
     console.log(`Oyente ${socket.id} cambió a ${language}/${selectedVoice}`);
+    broadcastEventStatus(eventId);
   }
 
   socket.on('set_listener_preferences', ({ language, voice, audio = true } = {}) => {
@@ -257,6 +399,10 @@ io.on('connection', (socket) => {
 
     clearSpeechTimers();
     renewalRequested = false;
+    speakerStreaming = false;
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
+    releaseSpeaker(activeSpeakers, eventId, socket.id);
+    broadcastEventStatus(eventId);
     socket.emit('speaker_error', {
       message: 'No se pudo recuperar el procesamiento de audio. Detén y vuelve a iniciar la transmisión.',
     });
@@ -303,16 +449,55 @@ io.on('connection', (socket) => {
     startRecognitionStream();
   }
 
-  socket.on('start_speaker_stream', () => {
-    if (socket.role !== 'speaker') return;
-    console.log('Iniciando stream del orador...');
-    speakerStreaming = true;
-    speechRecoveryAttempts = 0;
-    finishRecognitionStream({ flush: false });
-    transcriptChunker.reset();
-    clearSemanticFlushTimer();
-    if (speechClient) startRecognitionStream();
-    else socket.emit('speaker_error', { message: 'El servicio de reconocimiento no está disponible.' });
+  socket.on('start_speaker_stream', (request = {}, acknowledge = () => {}) => {
+    if (typeof request === 'function') {
+      acknowledge = request;
+      request = {};
+    }
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
+    if (socket.role !== 'speaker') {
+      acknowledge({ ok: false, message: 'Esta conexión no es un panel de orador.' });
+      return;
+    }
+    const suppliedToken = String(request?.token || socket.handshake.auth?.speakerToken || '');
+    if (SPEAKER_TOKEN && suppliedToken !== SPEAKER_TOKEN) {
+      const message = 'Clave de orador incorrecta.';
+      socket.emit('speaker_error', { message });
+      acknowledge({ ok: false, message });
+      return;
+    }
+    if (!speechClient || !translateClient || !ttsClient) {
+      const message = 'Los servicios de Google Cloud no están disponibles.';
+      socket.emit('speaker_error', { message });
+      acknowledge({ ok: false, message });
+      return;
+    }
+    if (!claimSpeaker(activeSpeakers, eventId, socket.id, (socketId) => io.sockets.sockets.has(socketId))) {
+      const message = 'Ya existe un orador transmitiendo en esta demo.';
+      socket.emit('speaker_error', { message });
+      acknowledge({ ok: false, message });
+      return;
+    }
+
+    try {
+      console.log('Iniciando stream del orador...');
+      speakerStreaming = true;
+      speechRecoveryAttempts = 0;
+      finishRecognitionStream({ flush: false });
+      transcriptChunker.reset();
+      clearSemanticFlushTimer();
+      startRecognitionStream();
+      acknowledge({ ok: true, eventId });
+      broadcastEventStatus(eventId);
+    } catch (error) {
+      speakerStreaming = false;
+      releaseSpeaker(activeSpeakers, eventId, socket.id);
+      const message = 'No se pudo iniciar el procesamiento de audio.';
+      console.error(message, error);
+      socket.emit('speaker_error', { message });
+      acknowledge({ ok: false, message });
+      broadcastEventStatus(eventId);
+    }
   });
 
   socket.on('restart_speaker_stream', () => {
@@ -321,7 +506,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('audio_data', (audioChunk) => {
-    if (socket.role === 'speaker' && recognizeStream) {
+    if (socket.role === 'speaker' && recognizeStream && activeSpeakers.get(socket.eventId || DEFAULT_EVENT_ID) === socket.id) {
+      if (!acceptsAudioChunk(audioChunk)) {
+        console.warn(`Fragmento de audio rechazado para ${socket.id}`);
+        return;
+      }
       try { recognizeStream.write(audioChunk); }
       catch (error) {
         console.error('Error enviando audio al reconocimiento:', error);
@@ -332,20 +521,35 @@ io.on('connection', (socket) => {
 
   socket.on('stop_speaker_stream', () => {
     if (socket.role !== 'speaker') return;
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
     speakerStreaming = false;
     renewalRequested = false;
     finishRecognitionStream({ flush: true });
     transcriptChunker.reset();
+    releaseSpeaker(activeSpeakers, eventId, socket.id);
+    broadcastEventStatus(eventId);
     console.log('Stream del orador detenido.');
   });
 
   socket.on('disconnect', () => {
     console.log(`Usuario desconectado: ${socket.id}`);
+    const eventId = socket.eventId || DEFAULT_EVENT_ID;
     speakerStreaming = false;
     renewalRequested = false;
     finishRecognitionStream({ flush: false });
     transcriptChunker.reset();
+    releaseSpeaker(activeSpeakers, eventId, socket.id);
+    broadcastEventStatus(eventId);
   });
+});
+
+app.use((error, _req, res, _next) => {
+  if (error?.message === 'Origen no permitido') {
+    res.status(403).json({ ok: false, error: 'Origen no permitido' });
+    return;
+  }
+  console.error('Error HTTP no controlado:', error);
+  res.status(500).json({ ok: false, error: 'Error interno del servidor' });
 });
 
 const PORT = process.env.PORT || 3001;

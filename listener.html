@@ -23,6 +23,7 @@
   .rla-listener__select-wrap label { display:block; margin-bottom:8px; color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
   .rla-listener select { width:100%; padding:13px 40px 13px 14px; border:1px solid var(--line); border-radius:11px; color:white; background:#202020; font:700 14px "Lato",Arial,sans-serif; outline:none; }
   .rla-listener__stage { position:relative; min-height:310px; padding:clamp(25px,5vw,50px); display:flex; flex-direction:column; justify-content:center; border:1px solid rgba(255,255,255,.11); border-radius:20px; background:radial-gradient(circle at 50% 0%,rgba(123,30,43,.12),transparent 48%),rgba(18,18,18,.58); overflow:hidden; }
+  .rla-listener__speaker { width:max-content; max-width:100%; margin-bottom:13px; padding:8px 12px; border:1px solid rgba(166,74,88,.38); border-radius:999px; color:#f1d8dc; background:rgba(123,30,43,.16); font-size:13px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rla-listener__kicker { margin-bottom:15px; color:#d5a4ab; font-size:12px; font-weight:900; letter-spacing:.14em; text-transform:uppercase; }
   .rla-listener__subtitle { margin:0; max-width:900px; font-size:clamp(28px,5vw,56px); line-height:1.16; letter-spacing:-.035em; font-weight:720; text-wrap:balance; }
   .rla-listener__history { min-height:26px; margin-top:18px; color:var(--muted); font-size:15px; line-height:1.55; }
@@ -62,6 +63,7 @@
         </div>
       </div>
       <div class="rla-listener__stage">
+        <div class="rla-listener__speaker" id="listenerSpeaker">Expositor por confirmar</div>
         <div class="rla-listener__kicker" id="listenerKicker">Listo para comenzar</div>
         <p class="rla-listener__subtitle" id="listenerSubtitle">Únete al evento para escuchar la traducción.</p>
         <div class="rla-listener__history" id="listenerHistory"></div>
@@ -96,6 +98,7 @@
   const subtitle = document.getElementById('listenerSubtitle');
   const history = document.getElementById('listenerHistory');
   const kicker = document.getElementById('listenerKicker');
+  const speakerLabel = document.getElementById('listenerSpeaker');
   const wave = document.getElementById('listenerWave');
   const queueLabel = document.getElementById('listenerQueue');
   const openOverlayButton = document.getElementById('openOverlay');
@@ -192,6 +195,7 @@
     });
     socket.on('event_status', data => {
       if (data?.eventId !== EVENT_ID) return;
+      speakerLabel.textContent = data.speakerName ? `Expositor · ${data.speakerName}` : 'Expositor por confirmar';
       statusText.textContent = data.live ? 'Orador en vivo' : 'Conectado · en espera';
       kicker.textContent = data.live ? `Escuchando en ${languageNames[selectedLanguage]}` : 'Esperando al orador';
     });

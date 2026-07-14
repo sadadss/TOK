@@ -15,6 +15,7 @@ const {
   configuredOrigins,
   createByteRateGuard,
   isAllowedOrigin,
+  normalizeSpeakerName,
   parseRoleRequest,
   releaseSpeaker,
   withTimeout,
@@ -137,10 +138,15 @@ function eventStatus(eventId) {
   for (const socketId of members) {
     if (io.sockets.sockets.get(socketId)?.role === 'listener') listeners += 1;
   }
+  const speakerSocketId = activeSpeakers.get(eventId);
+  const speakerName = speakerSocketId
+    ? normalizeSpeakerName(io.sockets.sockets.get(speakerSocketId)?.speakerName)
+    : '';
   return {
     eventId,
     live: activeSpeakers.has(eventId),
     listeners,
+    speakerName,
   };
 }
 
@@ -470,6 +476,13 @@ io.on('connection', (socket) => {
       acknowledge({ ok: false, message });
       return;
     }
+    const speakerName = normalizeSpeakerName(request?.speakerName || socket.speakerName);
+    if (!speakerName) {
+      const message = 'Ingresa el nombre del expositor antes de comenzar.';
+      socket.emit('speaker_error', { message });
+      acknowledge({ ok: false, message });
+      return;
+    }
     if (!speechClient || !translateClient || !ttsClient) {
       const message = 'Los servicios de Google Cloud no están disponibles.';
       socket.emit('speaker_error', { message });
@@ -485,13 +498,14 @@ io.on('connection', (socket) => {
 
     try {
       console.log('Iniciando stream del orador...');
+      socket.speakerName = speakerName;
       speakerStreaming = true;
       speechRecoveryAttempts = 0;
       finishRecognitionStream({ flush: false });
       transcriptChunker.reset();
       clearSemanticFlushTimer();
       startRecognitionStream();
-      acknowledge({ ok: true, eventId });
+      acknowledge({ ok: true, eventId, speakerName });
       broadcastEventStatus(eventId);
     } catch (error) {
       speakerStreaming = false;

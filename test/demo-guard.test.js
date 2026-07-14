@@ -7,10 +7,15 @@ const {
   createByteRateGuard,
   isAllowedOrigin,
   normalizeEventId,
+  normalizeSpeakerName,
   parseRoleRequest,
   releaseSpeaker,
   withTimeout,
 } = require('../demo-guard');
+
+assert.strictEqual(normalizeSpeakerName('  Ana   Mar\u00eda  '), 'Ana Mar\u00eda');
+assert.strictEqual(normalizeSpeakerName(''), '');
+assert.strictEqual(normalizeSpeakerName(`A${'b'.repeat(100)}`).length, 80);
 
 assert.equal(normalizeEventId(' Evento RLA 2026! '), 'evento-rla-2026');
 assert.equal(normalizeEventId('../'), 'demo');

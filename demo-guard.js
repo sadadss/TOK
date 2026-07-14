@@ -11,6 +11,14 @@ function normalizeEventId(value) {
   return normalized || DEFAULT_EVENT_ID;
 }
 
+function normalizeSpeakerName(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
 function parseRoleRequest(value) {
   if (typeof value === 'string') return { role: value, eventId: DEFAULT_EVENT_ID };
   return {
@@ -84,6 +92,7 @@ module.exports = {
   createByteRateGuard,
   isAllowedOrigin,
   normalizeEventId,
+  normalizeSpeakerName,
   parseRoleRequest,
   releaseSpeaker,
   withTimeout,

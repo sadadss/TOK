@@ -92,7 +92,8 @@
   const pageParams = new URLSearchParams(window.location.search);
   const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
   const SPEAKER_TOKEN = pageParams.get('token') || '';
-  const roomLabel = EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
+  const ROOM_NAME = String(pageParams.get('roomName') || '').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,60);
+  const roomLabel = ROOM_NAME || EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
   document.getElementById('speakerRoomLabel').textContent = EVENT_ID.startsWith('sala-') ? `Traducción simultánea · ${roomLabel}` : 'Traducción simultánea';
   const app = document.getElementById('rlaSpeakerApp');
   const button = document.getElementById('speakerButton');

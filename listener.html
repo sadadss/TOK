@@ -91,6 +91,7 @@
   const pageParams = new URLSearchParams(window.location.search);
   const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
   const FIXED_MODE = pageParams.get('fixed') === '1';
+  const ROOM_NAME = String(pageParams.get('roomName') || '').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,60);
   const joinButton = document.getElementById('listenerJoin');
   const language = document.getElementById('listenerLanguage');
   const voice = document.getElementById('listenerVoice');
@@ -110,7 +111,7 @@
   if (['es','en','fr','pt'].includes(requestedLanguage)) language.value = requestedLanguage;
   if (['clear','deep','soft'].includes(requestedVoice)) voice.value = requestedVoice;
   if (FIXED_MODE) { language.disabled = true; voice.disabled = true; }
-  const roomLabel = EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
+  const roomLabel = ROOM_NAME || EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
   document.getElementById('listenerRoomLabel').textContent = EVENT_ID.startsWith('sala-') ? `Interpretación en vivo · ${roomLabel}` : 'Interpretación en vivo';
   let socket, joined = false, playing = false, audioContext = null;
   let recentText = [], playbackGeneration = 0, pendingDecodes = 0;
@@ -238,6 +239,7 @@
   }
   function outputUrl(mode) {
     const params = new URLSearchParams({ event:EVENT_ID, lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1', fixed:FIXED_MODE?'1':'0' });
+    if (ROOM_NAME) params.set('roomName', ROOM_NAME);
     return `${SERVER_URL}/overlay?${params.toString()}`;
   }
   function openOutput(mode) {

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RLA · Centro de salas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#141414;--panel:#242424;--panel-2:#1b1b1b;--ink:#fff;--muted:#b9b9b9;--line:rgba(255,255,255,.12);--red:#7b1e2b;--red-2:#a64a58;--green:#69ad87;--amber:#d0a865}
+    *{box-sizing:border-box}html{background:var(--bg);color-scheme:dark}body{min-height:100vh;margin:0;color:var(--ink);background:radial-gradient(circle at 88% 2%,rgba(123,30,43,.25),transparent 30%),linear-gradient(145deg,#303030,#111 70%);font-family:"Lato",Arial,sans-serif}button,a{font:inherit}.app{width:min(1240px,calc(100% - 36px));margin:auto;padding:28px 0 58px}.top{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:34px}.brand{display:flex;align-items:center;gap:13px;font-weight:900}.logo{width:116px;height:56px;padding:11px 15px;display:grid;place-items:center;border-radius:12px;background:#414141;box-shadow:inset 0 -4px var(--red),0 12px 32px rgba(0,0,0,.25)}.logo img{display:block;max-width:100%;max-height:100%}.server{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:rgba(30,30,30,.78);font-size:13px}.server__dot{width:8px;height:8px;border-radius:50%;background:#888}.server.is-online .server__dot{background:var(--green);box-shadow:0 0 13px rgba(105,173,135,.7)}
+    .hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr);align-items:end;gap:28px;margin-bottom:24px}.eyebrow{color:#d9aeb5;font-size:12px;font-weight:900;letter-spacing:.17em;text-transform:uppercase}.hero h1{max-width:760px;margin:10px 0 14px;font-size:clamp(35px,5.5vw,65px);line-height:.98;letter-spacing:-.055em}.hero p{max-width:720px;margin:0;color:var(--muted);font-size:clamp(15px,1.7vw,18px);line-height:1.6}.flow{padding:20px;border:1px solid var(--line);border-radius:19px;background:rgba(25,25,25,.64)}.flow__label{margin-bottom:13px;color:var(--muted);font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.flow__track{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:900}.flow__node{flex:1;padding:11px 9px;border:1px solid var(--line);border-radius:11px;background:#222;text-align:center}.flow__arrow{color:#d9aeb5}
+    .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}.metric{padding:18px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(145deg,rgba(55,55,55,.83),rgba(28,28,28,.88))}.metric small{display:block;margin-bottom:8px;color:var(--muted);font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.metric strong{font-size:clamp(24px,3vw,34px);letter-spacing:-.04em}.metric span{display:block;margin-top:5px;color:#929292;font-size:12px}.section-head{display:flex;align-items:end;justify-content:space-between;gap:18px;margin:30px 0 15px}.section-head h2{margin:0;font-size:25px;letter-spacing:-.035em}.section-head p{margin:6px 0 0;color:var(--muted);font-size:13px}.copy-all{padding:11px 14px;border:1px solid var(--line);border-radius:11px;color:#fff;background:#2c2c2c;font-weight:900;cursor:pointer}.copy-all:hover{border-color:rgba(166,74,88,.72)}
+    .rooms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.room{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:21px;background:linear-gradient(150deg,rgba(54,54,54,.94),rgba(27,27,27,.96));box-shadow:0 22px 60px rgba(0,0,0,.24)}.room::before{content:"";position:absolute;inset:0 0 auto;height:4px;background:#4e4e4e}.room.is-live::before{background:var(--red-2)}.room__body{padding:20px}.room__top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.room__number{margin:0;font-size:24px;letter-spacing:-.04em}.room__id{margin-top:4px;color:#929292;font-size:12px}.badge{display:flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:11px;font-weight:900;white-space:nowrap}.badge__dot{width:7px;height:7px;border-radius:50%;background:#777}.room.is-live .badge{color:#f4dfe2;border-color:rgba(166,74,88,.55);background:rgba(123,30,43,.2)}.room.is-live .badge__dot{background:#d56a79;box-shadow:0 0 10px rgba(213,106,121,.72)}.speaker{min-height:59px;margin:18px 0;padding:13px;border:1px solid var(--line);border-radius:13px;background:rgba(18,18,18,.48)}.speaker small{display:block;margin-bottom:5px;color:var(--muted);font-size:11px}.speaker strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.room__stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:16px}.room__stat{padding:11px;border:1px solid var(--line);border-radius:11px;background:rgba(22,22,22,.45)}.room__stat small{display:block;margin-bottom:4px;color:#969696;font-size:10px;text-transform:uppercase}.room__stat strong{font-size:14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.action{min-height:39px;padding:10px;border:1px solid var(--line);border-radius:10px;color:#fff;background:#292929;text-align:center;text-decoration:none;font-size:12px;font-weight:900;cursor:pointer}.action:hover{border-color:rgba(166,74,88,.75);background:#333}.action.primary{grid-column:1/-1;border-color:#963746;background:var(--red)}.action.primary:hover{filter:brightness(1.08)}.footer{display:flex;justify-content:space-between;gap:18px;margin-top:22px;padding:16px 4px;color:#949494;font-size:12px}.notice{position:fixed;right:20px;bottom:20px;z-index:10;padding:12px 15px;border:1px solid rgba(166,74,88,.55);border-radius:12px;color:#fff;background:#2b2022;box-shadow:0 18px 45px rgba(0,0,0,.35);opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s}.notice.is-visible{opacity:1;transform:none}
+    @media(max-width:1050px){.rooms{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:620px){.app{width:min(100% - 20px,1240px);padding-top:16px}.top{align-items:flex-start;flex-direction:column}.rooms,.summary{grid-template-columns:1fr}.section-head,.footer{align-items:flex-start;flex-direction:column}.flow__track{align-items:stretch;flex-direction:column}.flow__arrow{transform:rotate(90deg)}.room__body{padding:18px}}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <div class="brand"><span class="logo"><img src="https://web.rla-latam.com/wp-content/uploads/2026/03/Logo_RLA2_BLANCO.png" alt="RLA"></span><span>Traducción en vivo</span></div>
+      <div class="server" id="serverStatus"><span class="server__dot"></span><span id="serverStatusText">Consultando servidor</span></div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Operación multisalón</div>
+        <h1>Ocho salas, una experiencia integrada</h1>
+        <p>Centro de acceso y monitoreo para traducción simultánea de español a inglés, con subtítulos y doblaje web para el público.</p>
+      </div>
+      <div class="flow" aria-label="Flujo de traducción">
+        <div class="flow__label">Flujo en cada sala</div>
+        <div class="flow__track"><span class="flow__node">Orador</span><span class="flow__arrow">→</span><span class="flow__node">IA</span><span class="flow__arrow">→</span><span class="flow__node">Público</span></div>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Resumen de operación">
+      <article class="metric"><small>Salas configuradas</small><strong id="roomCount">8</strong><span>Sesiones independientes</span></article>
+      <article class="metric"><small>Salas transmitiendo</small><strong id="liveRooms">0</strong><span>Actualización automática</span></article>
+      <article class="metric"><small>Oyentes conectados</small><strong id="listenerTotal">0</strong><span>Máximo planificado: 300</span></article>
+      <article class="metric"><small>Configuración</small><strong>ES → EN</strong><span>Audio + subtítulos · voz fija</span></article>
+    </section>
+
+    <div class="section-head">
+      <div><h2>Salas del evento</h2><p>Cada sala mantiene su propio orador, audiencia, subtítulos y salida de producción.</p></div>
+      <button class="copy-all" id="copyAll" type="button">Copiar enlaces de oyentes</button>
+    </div>
+    <section class="rooms" id="roomsGrid" aria-live="polite"></section>
+
+    <footer class="footer"><span>Demo técnica RLA · 8 salas paralelas</span><span id="lastUpdate">Esperando primera actualización</span></footer>
+  </main>
+  <div class="notice" id="notice" role="status"></div>
+
+  <script>
+  (() => {
+    const grid = document.getElementById('roomsGrid');
+    const serverStatus = document.getElementById('serverStatus');
+    const serverStatusText = document.getElementById('serverStatusText');
+    const roomCount = document.getElementById('roomCount');
+    const liveRooms = document.getElementById('liveRooms');
+    const listenerTotal = document.getElementById('listenerTotal');
+    const lastUpdate = document.getElementById('lastUpdate');
+    const copyAll = document.getElementById('copyAll');
+    const notice = document.getElementById('notice');
+    let roomData = [];
+    let noticeTimer;
+
+    function linksFor(roomId) {
+      const base = window.location.origin;
+      const event = encodeURIComponent(roomId);
+      return {
+        demo: `${base}/demo?event=${event}&lang=en&voice=clear&fixed=1`,
+        speaker: `${base}/speaker?event=${event}`,
+        listener: `${base}/listener?event=${event}&lang=en&voice=clear&fixed=1`,
+        overlay: `${base}/overlay?event=${event}&lang=en&voice=clear&mode=transparent&audio=1&clean=1&fixed=1`,
+      };
+    }
+
+    function showNotice(message) {
+      clearTimeout(noticeTimer);
+      notice.textContent = message;
+      notice.classList.add('is-visible');
+      noticeTimer = setTimeout(() => notice.classList.remove('is-visible'), 2200);
+    }
+
+    async function copyText(value, successMessage) {
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch (_error) {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand('copy');
+        field.remove();
+      }
+      showNotice(successMessage);
+    }
+
+    function roomCard(room) {
+      const links = linksFor(room.id);
+      const article = document.createElement('article');
+      article.className = `room${room.live ? ' is-live' : ''}`;
+      article.innerHTML = `
+        <div class="room__body">
+          <div class="room__top">
+            <div><h3 class="room__number"></h3><div class="room__id"></div></div>
+            <span class="badge"><span class="badge__dot"></span><span class="badge__text"></span></span>
+          </div>
+          <div class="speaker"><small>Expositor</small><strong></strong></div>
+          <div class="room__stats">
+            <div class="room__stat"><small>Oyentes</small><strong class="listeners"></strong></div>
+            <div class="room__stat"><small>Idioma</small><strong>ES → EN</strong></div>
+          </div>
+          <div class="actions">
+            <a class="action primary" target="_blank" rel="noopener" href="${links.demo}">Abrir demostración</a>
+            <a class="action" target="_blank" rel="noopener" href="${links.speaker}">Orador</a>
+            <a class="action" target="_blank" rel="noopener" href="${links.listener}">Oyentes</a>
+            <a class="action" target="_blank" rel="noopener" href="${links.overlay}">Overlay</a>
+            <button class="action copy" type="button">Copiar enlace</button>
+          </div>
+        </div>`;
+      article.querySelector('.room__number').textContent = room.label;
+      article.querySelector('.room__id').textContent = room.id;
+      article.querySelector('.badge__text').textContent = room.live ? 'En vivo' : 'Disponible';
+      article.querySelector('.speaker strong').textContent = room.speakerName || 'Sin expositor activo';
+      article.querySelector('.listeners').textContent = String(room.listeners || 0);
+      article.querySelector('.copy').addEventListener('click', () => copyText(links.listener, `Enlace de ${room.label} copiado`));
+      return article;
+    }
+
+    function render(data) {
+      roomData = data.rooms || [];
+      roomCount.textContent = String(data.configuration?.roomCount || roomData.length || 8);
+      liveRooms.textContent = String(data.summary?.liveRooms || 0);
+      listenerTotal.textContent = String(data.summary?.listeners || 0);
+      grid.replaceChildren(...roomData.map(roomCard));
+      serverStatus.classList.add('is-online');
+      serverStatusText.textContent = 'Servidor operativo';
+      lastUpdate.textContent = `Actualizado ${new Intl.DateTimeFormat('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date())}`;
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch('/api/rooms', { cache:'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        render(await response.json());
+      } catch (_error) {
+        serverStatus.classList.remove('is-online');
+        serverStatusText.textContent = 'Reconectando';
+        lastUpdate.textContent = 'No se pudo actualizar el estado';
+      }
+    }
+
+    copyAll.addEventListener('click', () => {
+      const text = roomData.map(room => `${room.label}: ${linksFor(room.id).listener}`).join('\n');
+      if (text) copyText(text, 'Enlaces de las ocho salas copiados');
+    });
+
+    refresh();
+    setInterval(refresh, 4000);
+  })();
+  </script>
+</body>
+</html>

@@ -28,7 +28,7 @@
     </header>
 
     <section class="hero">
-      <div class="eyebrow">Experiencia interactiva</div>
+      <div class="eyebrow" id="demoRoomLabel">Experiencia interactiva</div>
       <h1>Habla y escucha la traducción</h1>
       <p>Esta página muestra en una sola pantalla lo que vive el orador y lo que recibe el público durante un evento.</p>
     </section>
@@ -86,6 +86,7 @@
     const params=new URLSearchParams(window.location.search);
     const EVENT_ID=(params.get('event')||'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48)||'demo';
     const SPEAKER_TOKEN=params.get('token')||'';
+    const FIXED_MODE=params.get('fixed')==='1';
     const app=document.getElementById('showcaseApp');
     const connection=document.getElementById('globalConnection');
     const connectionText=document.getElementById('globalConnectionText');
@@ -110,6 +111,11 @@
     const wave=document.getElementById('demoWave');
     const languageLabel=document.getElementById('languageLabel');
     const queueLabel=document.getElementById('audioQueueLabel');
+    if(['es','en','fr','pt'].includes(params.get('lang')))language.value=params.get('lang');
+    if(['clear','deep','soft'].includes(params.get('voice')))voice.value=params.get('voice');
+    if(FIXED_MODE){language.disabled=true;voice.disabled=true}
+    const roomLabel=EVENT_ID.replace(/^sala-(\d+)$/,'Sala $1');
+    document.getElementById('demoRoomLabel').textContent=EVENT_ID.startsWith('sala-')?`Experiencia interactiva · ${roomLabel}`:'Experiencia interactiva';
     const languageNames={en:'inglés',fr:'francés',pt:'portugués',es:'español original'};
     let selectedLanguage=language.value,selectedVoice=voice.value,audioEnabled=true;
     let speakerReady=false,isLive=false,renewing=false,recorder,sessionRecorder,mediaStream,analyser,meterFrame,timerInterval,startedAt;

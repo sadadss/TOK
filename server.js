@@ -9,6 +9,7 @@ const textToSpeech = require('@google-cloud/text-to-speech');
 const cors = require('cors');
 const { createTranscriptChunker } = require('./transcript-chunker');
 const { DEFAULT_VOICE, VOICE_PROFILES, googleVoiceName, normalizeVoice } = require('./voice-config');
+const { presentationConfig } = require('./room-config');
 const {
   DEFAULT_EVENT_ID,
   claimSpeaker,
@@ -22,6 +23,7 @@ const {
 } = require('./demo-guard');
 
 const app = express();
+const presentation = presentationConfig();
 const extraOrigins = configuredOrigins(process.env.ALLOWED_ORIGINS);
 const corsOptions = {
   origin(origin, callback) {
@@ -38,7 +40,8 @@ app.use((_req, res, next) => {
 app.use(cors(corsOptions));
 app.get('/', (_req, res) => res.json({
   service: 'RLA Traducción en vivo',
-  mode: 'demo',
+  mode: 'presentación de 8 salas',
+  rooms: '/salas',
   showcase: '/demo?event=demo',
   speaker: '/speaker?event=demo',
   listener: '/listener?event=demo',
@@ -57,6 +60,9 @@ app.get(['/speaker', '/speaker.html'], (_req, res) => {
 app.get(['/listener', '/listener.html'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'listener.html'));
 });
+app.get(['/salas', '/rooms', '/rooms.html'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'rooms.html'));
+});
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: corsOptions,
@@ -68,7 +74,7 @@ const io = new Server(server, {
 
 const serverStartedAt = Date.now();
 const activeSpeakers = new Map();
-const MAX_CONNECTIONS = Math.max(10, Number(process.env.MAX_CONNECTIONS) || 150);
+const MAX_CONNECTIONS = Math.max(10, Number(process.env.MAX_CONNECTIONS) || 400);
 const GOOGLE_CALL_TIMEOUT_MS = Math.max(5000, Number(process.env.GOOGLE_CALL_TIMEOUT_MS) || 15000);
 const MAX_SYNTHESIS_BACKLOG = Math.max(2, Number(process.env.MAX_SYNTHESIS_BACKLOG) || 6);
 const MAX_TRANSLATION_BACKLOG = Math.max(2, Number(process.env.MAX_TRANSLATION_BACKLOG) || 8);
@@ -154,6 +160,30 @@ function broadcastEventStatus(eventId) {
   io.to(eventRoom(eventId)).emit('event_status', eventStatus(eventId));
 }
 
+app.get('/api/rooms', (_req, res) => {
+  const rooms = presentation.rooms.map((room) => ({ ...room, ...eventStatus(room.id) }));
+  const listeners = rooms.reduce((total, room) => total + room.listeners, 0);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    configuration: {
+      roomCount: rooms.length,
+      maxListeners: presentation.maxListeners,
+      sourceLanguage: presentation.sourceLanguage,
+      targetLanguage: presentation.targetLanguage,
+      voice: presentation.voice,
+    },
+    summary: {
+      liveRooms: rooms.filter((room) => room.live).length,
+      listeners,
+      connections: io.engine.clientsCount,
+      maxConnections: MAX_CONNECTIONS,
+    },
+    rooms,
+  });
+});
+
 io.on('connection', (socket) => {
   if (io.engine.clientsCount > MAX_CONNECTIONS) {
     socket.emit('server_busy', { message: 'La demo alcanzó su capacidad temporal. Intenta nuevamente en unos minutos.' });
@@ -236,7 +266,10 @@ io.on('connection', (socket) => {
       isFinal,
     });
 
-    const translations = await Promise.all(TARGET_LANGUAGES.map(async ({ code, languageCode }) => {
+    const activeTargetLanguages = TARGET_LANGUAGES.filter(({ code }) => (
+      io.sockets.adapter.rooms.get(languageRoom(eventId, code))?.size
+    ));
+    const translations = await Promise.all(activeTargetLanguages.map(async ({ code, languageCode }) => {
       try {
         const [translation] = await withTimeout(
           translateClient.translate(normalizedText, code),

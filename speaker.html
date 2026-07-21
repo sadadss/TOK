@@ -62,7 +62,7 @@
       <div class="rla-speaker__status" id="speakerStatus"><span class="rla-speaker__dot"></span><span id="speakerStatusText">Conectando</span></div>
     </header>
     <section class="rla-speaker__card">
-      <div class="rla-speaker__eyebrow">Traducción simultánea</div>
+      <div class="rla-speaker__eyebrow" id="speakerRoomLabel">Traducción simultánea</div>
       <h1>Panel del orador</h1>
       <p class="rla-speaker__lead">Habla con naturalidad. La voz se procesa en fragmentos continuos y se traduce casi en tiempo real.</p>
       <div class="rla-speaker__identity">
@@ -92,6 +92,8 @@
   const pageParams = new URLSearchParams(window.location.search);
   const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
   const SPEAKER_TOKEN = pageParams.get('token') || '';
+  const roomLabel = EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
+  document.getElementById('speakerRoomLabel').textContent = EVENT_ID.startsWith('sala-') ? `Traducción simultánea · ${roomLabel}` : 'Traducción simultánea';
   const app = document.getElementById('rlaSpeakerApp');
   const button = document.getElementById('speakerButton');
   const buttonText = document.getElementById('speakerButtonText');

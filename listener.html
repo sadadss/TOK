@@ -56,7 +56,7 @@
     </header>
     <section class="rla-listener__card">
       <div class="rla-listener__header">
-        <div><div class="rla-listener__eyebrow">Interpretación en vivo</div><h1>Traducción simultánea</h1></div>
+        <div><div class="rla-listener__eyebrow" id="listenerRoomLabel">Interpretación en vivo</div><h1>Traducción simultánea</h1></div>
         <div class="rla-listener__controls">
           <div class="rla-listener__select-wrap"><label for="listenerLanguage">Idioma de escucha</label><select id="listenerLanguage"><option value="en">English · Inglés</option><option value="fr">Français · Francés</option><option value="pt">Português · Portugués</option><option value="es">Español · Original</option></select></div>
           <div class="rla-listener__select-wrap"><label for="listenerVoice">Tipo de voz</label><select id="listenerVoice"><option value="clear">Clara · femenina</option><option value="deep">Grave · masculina</option><option value="soft">Suave · femenina</option></select></div>
@@ -90,6 +90,7 @@
   const SERVER_URL = 'https://traduccion-vivo-backend.onrender.com';
   const pageParams = new URLSearchParams(window.location.search);
   const EVENT_ID = (pageParams.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
+  const FIXED_MODE = pageParams.get('fixed') === '1';
   const joinButton = document.getElementById('listenerJoin');
   const language = document.getElementById('listenerLanguage');
   const voice = document.getElementById('listenerVoice');
@@ -104,6 +105,13 @@
   const openOverlayButton = document.getElementById('openOverlay');
   const openProjectionButton = document.getElementById('openProjection');
   const copyOverlayButton = document.getElementById('copyOverlay');
+  const requestedLanguage = pageParams.get('lang');
+  const requestedVoice = pageParams.get('voice');
+  if (['es','en','fr','pt'].includes(requestedLanguage)) language.value = requestedLanguage;
+  if (['clear','deep','soft'].includes(requestedVoice)) voice.value = requestedVoice;
+  if (FIXED_MODE) { language.disabled = true; voice.disabled = true; }
+  const roomLabel = EVENT_ID.replace(/^sala-(\d+)$/, 'Sala $1');
+  document.getElementById('listenerRoomLabel').textContent = EVENT_ID.startsWith('sala-') ? `Interpretación en vivo · ${roomLabel}` : 'Interpretación en vivo';
   let socket, joined = false, playing = false, audioContext = null;
   let recentText = [], playbackGeneration = 0, pendingDecodes = 0;
   let decodeChain = Promise.resolve(), nextPlaybackAt = 0;
@@ -229,7 +237,7 @@
     if (joined && selectedLanguage !== 'es') subtitle.textContent='Voz cambiada. Esperando el siguiente fragmento…';
   }
   function outputUrl(mode) {
-    const params = new URLSearchParams({ event:EVENT_ID, lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1' });
+    const params = new URLSearchParams({ event:EVENT_ID, lang:selectedLanguage, voice:selectedVoice, mode, audio:'1', clean:'1', fixed:FIXED_MODE?'1':'0' });
     return `${SERVER_URL}/overlay?${params.toString()}`;
   }
   function openOutput(mode) {

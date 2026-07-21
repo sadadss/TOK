@@ -76,6 +76,7 @@
     const supported = new Set(['es','en','fr','pt']);
     const params = new URLSearchParams(window.location.search);
     const EVENT_ID = (params.get('event') || 'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48) || 'demo';
+    const FIXED_MODE = params.get('fixed') === '1';
     const languageSelect = document.getElementById('overlayLanguage');
     const voiceSelect = document.getElementById('overlayVoice');
     const audioSelect = document.getElementById('overlayAudio');
@@ -99,6 +100,7 @@
 
     languageSelect.value = selectedLanguage;
     voiceSelect.value = selectedVoice;
+    if (FIXED_MODE) { languageSelect.disabled = true; voiceSelect.disabled = true; }
     audioSelect.value = params.get('audio') === '0' ? 'off' : 'on';
     modeSelect.value = params.get('mode') === 'projection' ? 'projection' : 'transparent';
     positionSelect.value = params.get('position') === 'center' ? 'center' : 'bottom';

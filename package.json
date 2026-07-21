@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/transcript-chunker.test.js && node test/voice-config.test.js && node test/demo-guard.test.js && node --check server.js"
+    "test": "node test/transcript-chunker.test.js && node test/voice-config.test.js && node test/demo-guard.test.js && node test/room-config.test.js && node --check server.js"
   },
   "keywords": [],
   "author": "",

@@ -87,6 +87,7 @@
     const EVENT_ID=(params.get('event')||'demo').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48)||'demo';
     const SPEAKER_TOKEN=params.get('token')||'';
     const FIXED_MODE=params.get('fixed')==='1';
+    const ROOM_NAME=String(params.get('roomName')||'').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,60);
     const app=document.getElementById('showcaseApp');
     const connection=document.getElementById('globalConnection');
     const connectionText=document.getElementById('globalConnectionText');
@@ -114,7 +115,7 @@
     if(['es','en','fr','pt'].includes(params.get('lang')))language.value=params.get('lang');
     if(['clear','deep','soft'].includes(params.get('voice')))voice.value=params.get('voice');
     if(FIXED_MODE){language.disabled=true;voice.disabled=true}
-    const roomLabel=EVENT_ID.replace(/^sala-(\d+)$/,'Sala $1');
+    const roomLabel=ROOM_NAME||EVENT_ID.replace(/^sala-(\d+)$/,'Sala $1');
     document.getElementById('demoRoomLabel').textContent=EVENT_ID.startsWith('sala-')?`Experiencia interactiva · ${roomLabel}`:'Experiencia interactiva';
     const languageNames={en:'inglés',fr:'francés',pt:'portugués',es:'español original'};
     let selectedLanguage=language.value,selectedVoice=voice.value,audioEnabled=true;
